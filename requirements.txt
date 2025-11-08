@@ -1,0 +1,21 @@
+pandas>=2.2
+numpy>=1.26
+geopandas>=0.14
+shapely>=2.0
+h3>=3.7
+pyproj>=3.6
+requests>=2.32
+tqdm>=4.66
+joblib>=1.4
+PyYAML>=6.0
+lightgbm>=4.3
+scikit-learn>=1.5
+statsmodels>=0.14
+plotly>=5.24
+
+
+# Dash + deck.gl
+dash>=2.17
+dash-bootstrap-components>=1.6
+# dash-deck is a small wrapper; if unavailable, we embed deck.gl JSON via Iframe
+dash-deck>=0.0.1

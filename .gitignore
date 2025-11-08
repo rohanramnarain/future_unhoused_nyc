@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.data/
+.DS_Store
+models/artifacts/
+models/reports/
+data/raw/
+data/interim/
+data/processed/

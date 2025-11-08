@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "nyc-homeless-forecast"
+version = "0.1.0"
+description = "Spatiotemporal forecasts and Dash map for NYC homelessness risk"
+authors = [{name = "Rohan Ramnarain"}]
+requires-python = ">=3.10"
+dependencies = []
