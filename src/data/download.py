@@ -70,3 +70,14 @@ def download_small_samples():
         logger.info("Saved NYC boundary geojson")
     except Exception as e:
         logger.warning(f"Boundary download failed (will use bbox fallback): {e}")
+
+    modzcta_url = "https://data.cityofnewyork.us/api/geospatial/pri4-ifjk?method=export&format=GeoJSON"
+    modzcta_path = os.path.join(settings.external_dir, "modzcta.geojson")
+    try:
+        r = requests.get(modzcta_url, timeout=120)
+        r.raise_for_status()
+        with open(modzcta_path, "wb") as f:
+            f.write(r.content)
+        logger.info("Saved MODZCTA boundaries")
+    except Exception as e:
+        logger.warning(f"MODZCTA download failed (ZIP lookups will be skipped): {e}")

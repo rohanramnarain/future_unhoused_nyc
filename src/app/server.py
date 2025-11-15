@@ -2,19 +2,75 @@
 import os, json
 from typing import Dict
 import pandas as pd
+from shapely.geometry import shape
+from shapely.strtree import STRtree
 
 import dash
 from dash import html, dcc, Output, Input
 import dash_bootstrap_components as dbc  # <-- this import was missing
 
 from ..config import settings
+from ..utils.logging import get_logger
 
 # Files produced by the pipeline
 PRED_PATH = os.path.join(settings.processed_dir, "predictions_2026_2029.csv")
 HEX_GJ_PATH = os.path.join(settings.processed_dir, "hexes.geojson")
+MODZCTA_PATH = os.path.join(settings.external_dir, "modzcta.geojson")
+
+logger = get_logger()
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LITERA])
 server = app.server
+
+
+def _build_zip_lookup():
+    if not os.path.exists(MODZCTA_PATH):
+        logger.warning("ZIP boundary file missing at %s; tooltips will omit ZIP codes.", MODZCTA_PATH)
+        return None
+    try:
+        with open(MODZCTA_PATH, "r") as f:
+            data = json.load(f)
+    except Exception as exc:
+        logger.warning("Failed to load MODZCTA boundaries (%s); tooltips will omit ZIP codes.", exc)
+        return None
+
+    geoms, attrs = [], []
+    for feat in data.get("features", []):
+        geom = feat.get("geometry")
+        props = feat.get("properties", {})
+        try:
+            poly = shape(geom)
+        except Exception:
+            continue
+        if poly.is_empty:
+            continue
+        zip_code = str(props.get("modzcta") or "").strip()
+        if not zip_code:
+            continue
+        geoms.append(poly)
+        attrs.append({
+            "zip": zip_code,
+            "zip_label": (props.get("label") or "").strip(),
+        })
+
+    if not geoms:
+        logger.warning("Loaded MODZCTA boundaries but none were usable; tooltips will omit ZIP codes.")
+        return None
+
+    tree = STRtree(geoms)
+
+    def lookup(point):
+        for idx in tree.query(point):
+            geom = geoms[idx]
+            if geom.covers(point):
+                return attrs[idx]
+        return None
+
+    logger.info("Loaded %s MODZCTA polygons for ZIP enrichment", len(geoms))
+    return lookup
+
+
+ZIP_LOOKUP = _build_zip_lookup()
 
 def build_geojson_blob():
     if not (os.path.exists(PRED_PATH) and os.path.exists(HEX_GJ_PATH)):
@@ -34,6 +90,20 @@ def build_geojson_blob():
         for r in preds.itertuples()
     }
     feat_out = []
+    zip_props_by_hex = {}
+    for feat in gj["features"]:
+        hx = feat["properties"]["hex"]
+        info = {}
+        if ZIP_LOOKUP:
+            try:
+                centroid = shape(feat["geometry"]).representative_point()
+                lookup = ZIP_LOOKUP(centroid)
+                if lookup:
+                    info = lookup.copy()
+            except Exception as exc:
+                logger.debug("ZIP lookup failed for hex %s: %s", hx, exc)
+        zip_props_by_hex[hx] = info
+
     for feat in gj["features"]:
         hx = feat["properties"]["hex"]
         for year in sorted(preds["year"].unique()):
@@ -43,19 +113,24 @@ def build_geojson_blob():
             feat_out.append({
                 "type": "Feature",
                 "geometry": feat["geometry"],
-                "properties": {"hex": hx, "year": int(year), **p},
+                "properties": {
+                    "hex": hx,
+                    "year": int(year),
+                    "zip": zip_props_by_hex[hx].get("zip"),
+                    "zip_label": zip_props_by_hex[hx].get("zip_label"),
+                    **p,
+                },
             })
     return {"type": "FeatureCollection", "features": feat_out}
 
 def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred"):
-    # Stops roughly follow ColorBrewer YlGnBu (with alpha), gives smoother gradients client-side
+    # Define discrete bands so 0 stays transparent and quartiles deepen progressively
     brewer_stops = [
-        {"value": 0.0, "color": [255, 255, 255, 20]},
-        {"value": 0.2, "color": [237, 248, 251, 45]},
-        {"value": 0.4, "color": [204, 235, 197, 90]},
-        {"value": 0.6, "color": [168, 221, 181, 140]},
-        {"value": 0.8, "color": [123, 204, 196, 185]},
-        {"value": 1.0, "color": [43, 140, 190, 220]},
+        {"max": 0.0, "color": [0, 0, 0, 0]},            # exactly zero ⇒ fully transparent
+        {"max": 0.25, "color": [233, 246, 248, 80]},     # >0–0.25 lightest
+        {"max": 0.5, "color": [178, 226, 226, 140]},    # 0.25–0.5 medium-light
+        {"max": 0.75, "color": [102, 194, 164, 190]},   # 0.5–0.75 medium-dark
+        {"max": 1.0, "color": [35, 132, 67, 235]},      # 0.75–1 darkest
     ]
     return {
         "initialViewState": {"latitude": 40.7128, "longitude": -74.0060, "zoom": 9},
@@ -136,8 +211,11 @@ def update_map(year, metric):
                 const layerSpec = spec.layers[0];
                 const { colorMetric = 'pred', colorStops = [], ...layerProps } = layerSpec;
                 const defaultStops = [
-                    { value: 0, color: [255, 255, 255, 20] },
-                    { value: 1, color: [43, 140, 190, 220] }
+                    { max: 0.0, color: [0, 0, 0, 0] },
+                    { max: 0.25, color: [233, 246, 248, 80] },
+                    { max: 0.5, color: [178, 226, 226, 140] },
+                    { max: 0.75, color: [102, 194, 164, 190] },
+                    { max: 1.0, color: [35, 132, 67, 235] }
                 ];
                 const stops = colorStops.length ? colorStops : defaultStops;
                 const formatMetricValue = (val) => {
@@ -148,26 +226,21 @@ def update_map(year, metric):
                     return num.toFixed(3);
                 };
 
-                const interpolateColor = (value) => {
-                    if (value <= stops[0].value) { return stops[0].color; }
-                    if (value >= stops[stops.length - 1].value) { return stops[stops.length - 1].color; }
-                    for (let i = 0; i < stops.length - 1; i += 1) {
-                        const left = stops[i];
-                        const right = stops[i + 1];
-                        if (value >= left.value && value <= right.value) {
-                            const span = right.value - left.value || 1;
-                            const t = (value - left.value) / span;
-                            return left.color.map((c, idx) => Math.round(c + (right.color[idx] - c) * t));
+                const bandColor = (value) => {
+                    if (value <= 0) { return [0, 0, 0, 0]; }
+                    for (let i = 0; i < stops.length; i += 1) {
+                        if (value <= stops[i].max) {
+                            return stops[i].color;
                         }
                     }
-                    return stops[0].color;
+                    return stops[stops.length - 1].color;
                 };
                 const layer = new deck.GeoJsonLayer({
                     ...layerProps,
                     getFillColor: feature => {
                         const value = feature?.properties?.[colorMetric] ?? 0;
                         const clamped = Math.max(0, Math.min(1, Number(value)));
-                        return interpolateColor(clamped);
+                        return bandColor(clamped);
                     }
                 });
                 if (window.maplibregl) {
@@ -188,8 +261,10 @@ def update_map(year, metric):
                         const props = object.properties || {};
                         const metricValue = formatMetricValue(props[colorMetric]);
                         const metricLabel = colorMetric.toUpperCase();
+                        const zipText = props.zip_label || props.zip || '';
+                        const zipLine = zipText ? `ZIP: ${zipText}<br/>` : '';
                         return {
-                            html: `<div><strong>Hex ${props.hex ?? ''}</strong><br/>${metricLabel}: ${metricValue}<br/>Year: ${props.year ?? '—'}</div>`,
+                            html: `<div><strong>Hex ${props.hex ?? ''}</strong><br/>${zipLine}${metricLabel}: ${metricValue}<br/>Year: ${props.year ?? '—'}</div>`,
                             style: {
                                 backgroundColor: 'rgba(255,255,255,0.92)',
                                 color: '#0f172a',
