@@ -1,6 +1,14 @@
+# src/config.py
 import os
 from dataclasses import dataclass
 
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional dependency handled gracefully
+    load_dotenv = None
+
+if load_dotenv:
+    load_dotenv()
 
 @dataclass
 class Settings:
@@ -10,22 +18,17 @@ class Settings:
     processed_dir: str = os.path.join("data", "processed")
     external_dir: str = os.path.join("data", "external")
 
-
     models_dir: str = os.path.join("models", "artifacts")
     reports_dir: str = os.path.join("models", "reports")
 
-
-    mapbox_token: str = os.getenv("MAPBOX_TOKEN", "")
+    mapbox_token: str = os.getenv("MAPBOX_TOKEN") or os.getenv("MAPBOX_API_TOKEN", "")
     census_api_key: str = os.getenv("CENSUS_API_KEY", "")
     socrata_app_token: str = os.getenv("SOCRATA_APP_TOKEN", "")
 
-
-    random_seed: int = int(os.getenv("RANDOM_SEED", 42))
+    random_seed: int = int(os.getenv("RANDOM_SEED", "42"))
     advanced_model: bool = bool(int(os.getenv("ADVANCED_MODEL", "0")))
 
-
-    app_port: int = int(os.getenv("APP_PORT", 8050))
+    app_port: int = int(os.getenv("APP_PORT", "8050"))
     app_host: str = os.getenv("APP_HOST", "127.0.0.1")
 
-
-    settings = Settings()
+settings = Settings()
