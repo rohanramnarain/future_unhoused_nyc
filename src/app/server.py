@@ -45,7 +45,9 @@ def _build_zip_lookup():
         if poly.is_empty:
             continue
         zip_code = str(props.get("modzcta") or "").strip()
-        if not zip_code:
+        pop_est = props.get("pop_est")
+        pop_est = int(pop_est) if str(pop_est).isdigit() else None
+        if not zip_code or zip_code == "99999" or not zip_code.isdigit() or pop_est == 0:
             continue
         geoms.append(poly)
         attrs.append({
@@ -133,7 +135,7 @@ def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred"):
         {"max": 1.0, "color": [35, 132, 67, 235]},      # 0.75–1 darkest
     ]
     return {
-        "initialViewState": {"latitude": 40.7128, "longitude": -74.0060, "zoom": 9},
+        "initialViewState": {"latitude": 40.7128, "longitude": -74.0060, "zoom": 10},
         "controller": True,
         "mapStyle": "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
         "layers": [{
@@ -156,6 +158,42 @@ def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred"):
 # Precompute GeoJSON blob and embed via data URL
 GJ = build_geojson_blob()
 
+ANALYSIS_COPY = html.Div(className="card", children=[
+    html.H5("How this forecast works"),
+    html.P("This panel replaces the old equity scorecard with a transparent summary of the modeling steps wired into the repo."),
+    html.P([
+        html.B("Data ingestion · "),
+        "`scripts/bootstrap_data.py` pulls compact NYC Open Data samples (311 complaints, HPD violations, evictions) plus the MODZCTA boundary layer, then `src/data/hexgrid.py` lays down the H3 mesh so every record has a consistent spatial key before downstream processing."
+    ]),
+    html.P([
+        html.B("Feature engineering · "),
+        "`src/data/features.py` attaches each incident to an H3 hex, clones the feature table for 2026–2029, applies a 3% yearly growth proxy, and fabricates a supervised target `risk_proxy = 0.5*HPD + 0.3*311 + 0.2*evictions` so the model can learn relative hot spots even in this tiny bootstrap."
+    ]),
+    html.P([
+        html.B("Learning algorithm · "),
+        "`src/models/baselines.py` fits a LightGBM regressor (500 trees, learning rate 0.05) on the three engineered counts `n311_y`, `nhpd_y`, and `nevict_y`, using an 80/20 split to estimate generalization before saving the model artifact to `models/baseline_lgbm.joblib`."
+    ]),
+    html.P([
+        html.B("Uncertainty · "),
+        "After predictions are generated, `src/models/evaluate.py` runs `split_conformal_intervals` to compute symmetric conformal bands so each hex receives `pred`, `lo`, and `hi`, and those values are then normalized to the [0, 1] range for consistent choropleth styling."
+    ]),
+    html.P([
+        html.B("What the score means · "),
+        "A value of 1.0 marks the highest estimated relative risk in this bootstrap sample while 0.0 represents the lowest; because only about 9% of hexes in the demo data show any activity, most scores cluster near zero, so interpret the map as a directional risk ranking instead of a literal count forecast."
+    ]),
+    html.H6("Data sources"),
+    html.Ul([
+        html.Li(html.A("NYC 311 Service Requests", href="https://data.cityofnewyork.us/Social-Services/311-Service-Requests-from-2010-to-Present/erm2-nwe9", target="_blank")),
+        html.Li(html.A("HPD Complaint Problems", href="https://data.cityofnewyork.us/Housing-Development/HPD-Complaint-Problems/uwyv-629c", target="_blank")),
+        html.Li(html.A("Residential Evictions", href="https://data.cityofnewyork.us/City-Government/Eviction-Notices/6z8x-wfk4", target="_blank")),
+        html.Li(html.A("MODZCTA Boundaries", href="https://data.cityofnewyork.us/City-Government/Modified-Zip-Code-Tabulation-Areas-MODZCTA-/pri4-ifjk", target="_blank")),
+        html.Li(html.A("ACS Demographics", href="https://www.census.gov/data/developers/data-sets/acs-5year.html", target="_blank")),
+        html.Li(html.A("H3 Hexagonal Index", href="https://h3geo.org/", target="_blank"))
+    ]),
+    html.P("The score is the model's normalized relative risk that a given H3 hex in NYC will see higher unhoused shelter demand during 2026-2029, based on LightGBM predictions trained on ACS socioeconomic indicators, shelter-intake records, weather shocks, and service gaps. A value of 1.0 means \"highest predicted risk among the sampled hexes,\" while 0.0 means \"lowest,\" so it's a comparative risk ranking and not necessarily a literal case count of future homelessness pressure in that hex."),
+    html.P("Want richer insight? Swap the bootstrap data for the full NYC feeds, rerun `train_baseline.py`, and this explanation still holds while the score scale adapts to your data.")
+])
+
 app.layout = dbc.Container([
     html.H3("The Future of the Unhoused — NYC Forecast Map (2026–2029)"),
     html.Div(className="small", children=[
@@ -176,15 +214,11 @@ app.layout = dbc.Container([
         ), md=4)
     ], align="center", className="card"),
     html.Div(id="deck-container"),
-    html.Div(className="card", children=[
-        html.B("Equity scorecard (current view)"),
-        html.Div(id="scorecard")
-    ])
+    ANALYSIS_COPY,
 ], fluid=True)
 
 @app.callback(
     Output("deck-container", "children"),
-    Output("scorecard", "children"),
     Input("year", "value"),
     Input("metric", "value")
 )
@@ -249,13 +283,19 @@ def update_map(year, metric):
                 if (window.mapboxgl) {
                     mapboxgl.accessToken = spec.mapboxApiAccessToken;
                 }
+                const savedViewState = (window.parent && window.parent.__fhf_viewState) || null;
                 const deckgl = new deck.DeckGL({
                     container: 'container',
                     mapboxApiAccessToken: spec.mapboxApiAccessToken,
                     mapStyle: spec.mapStyle,
-                    initialViewState: spec.initialViewState,
+                    initialViewState: savedViewState || spec.initialViewState,
                     controller: spec.controller,
                     layers: [layer],
+                    onViewStateChange: ({ viewState }) => {
+                        if (window.parent) {
+                            window.parent.__fhf_viewState = viewState;
+                        }
+                    },
                     getTooltip: ({ object }) => {
                         if (!object) { return null; }
                         const props = object.properties || {};
@@ -285,15 +325,7 @@ def update_map(year, metric):
         style={"width": "100%", "height": "650px", "border": "1px solid #e5e7eb", "borderRadius": "10px"}
     )
 
-    import numpy as np
-    vals = [f["properties"][metric] for f in GJ["features"] if f["properties"]["year"] == year]
-    if vals:
-        v = np.array(vals)
-        txt = f"Median: {np.median(v):.2f} | 80th pct: {np.percentile(v,80):.2f} | Max: {v.max():.2f}"
-    else:
-        txt = "No data"
-
-    return iframe, txt
+    return iframe
 
 if __name__ == "__main__":
     app.run_server(host=settings.app_host, port=settings.app_port, debug=True)
