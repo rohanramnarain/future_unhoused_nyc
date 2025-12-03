@@ -24,6 +24,10 @@ class Settings:
     mapbox_token: str = os.getenv("MAPBOX_TOKEN") or os.getenv("MAPBOX_API_TOKEN", "")
     census_api_key: str = os.getenv("CENSUS_API_KEY", "")
     socrata_app_token: str = os.getenv("SOCRATA_APP_TOKEN", "")
+    filed_evictions_dataset: str = os.getenv(
+        "FILED_EVICTIONS_DATASET",
+        "https://raw.githubusercontent.com/housing-data-coalition/rtc-eviction-viz/main/csv/filings_by_zip_since_032320_pulled_120120.csv",
+    )
 
     random_seed: int = int(os.getenv("RANDOM_SEED", "42"))
     advanced_model: bool = bool(int(os.getenv("ADVANCED_MODEL", "0")))

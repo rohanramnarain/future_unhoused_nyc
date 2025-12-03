@@ -126,13 +126,14 @@ def build_geojson_blob():
     return {"type": "FeatureCollection", "features": feat_out}
 
 def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred"):
-    # Define discrete bands so 0 stays transparent and quartiles deepen progressively
+    # Define discrete bands so 0 stays transparent and high risk pushes into deep reds
     brewer_stops = [
-        {"max": 0.0, "color": [0, 0, 0, 0]},            # exactly zero ⇒ fully transparent
-        {"max": 0.25, "color": [233, 246, 248, 80]},     # >0–0.25 lightest
-        {"max": 0.5, "color": [178, 226, 226, 140]},    # 0.25–0.5 medium-light
-        {"max": 0.75, "color": [102, 194, 164, 190]},   # 0.5–0.75 medium-dark
-        {"max": 1.0, "color": [35, 132, 67, 235]},      # 0.75–1 darkest
+        {"max": 0.0, "color": [0, 0, 0, 0]},             # zero ⇒ transparent
+        {"max": 0.4, "color": [255, 255, 204, 120]},     # pale yellow (low >0)
+        {"max": 0.6, "color": [255, 237, 160, 170]},     # light yellow (medium)
+        {"max": 0.8, "color": [254, 178, 76, 210]},      # orange (elevated)
+        {"max": 0.9, "color": [253, 141, 60, 235]},      # orange-red (high)
+        {"max": 1.0, "color": [189, 0, 38, 255]},        # dark red (extreme)
     ]
     return {
         "initialViewState": {"latitude": 40.7128, "longitude": -74.0060, "zoom": 10},
@@ -246,10 +247,11 @@ def update_map(year, metric):
                 const { colorMetric = 'pred', colorStops = [], ...layerProps } = layerSpec;
                 const defaultStops = [
                     { max: 0.0, color: [0, 0, 0, 0] },
-                    { max: 0.25, color: [233, 246, 248, 80] },
-                    { max: 0.5, color: [178, 226, 226, 140] },
-                    { max: 0.75, color: [102, 194, 164, 190] },
-                    { max: 1.0, color: [35, 132, 67, 235] }
+                    { max: 0.4, color: [255, 255, 204, 120] },
+                    { max: 0.6, color: [255, 237, 160, 170] },
+                    { max: 0.8, color: [254, 178, 76, 210] },
+                    { max: 0.9, color: [253, 141, 60, 235] },
+                    { max: 1.0, color: [189, 0, 38, 255] }
                 ];
                 const stops = colorStops.length ? colorStops : defaultStops;
                 const formatMetricValue = (val) => {

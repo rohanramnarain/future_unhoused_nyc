@@ -1,14 +1,14 @@
 import os
-import numpy as np
 import pandas as pd
 from ..config import settings
+from .baselines import FEATURE_COLS
 
 
 def aggregate_to_predictions(df: pd.DataFrame, model, alpha: float = 0.1) -> pd.DataFrame:
     from .calibration import split_conformal_intervals
 
-    feats = df[["hex", "year", "n311_y", "nhpd_y", "nevict_y"]].copy()
-    mu = model.predict(feats[["n311_y", "nhpd_y", "nevict_y"]])
+    feats = df[["hex", "year", *FEATURE_COLS]].copy()
+    mu = model.predict(feats[FEATURE_COLS])
 
     # Build a fake y_true for conformal using risk_proxy (demo)
     y_true = df["risk_proxy"].values

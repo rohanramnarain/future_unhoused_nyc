@@ -1,6 +1,12 @@
-# src/data/download.py
-import os, time, requests
+import io
+import json
+import os
+import time
 from urllib.parse import urlencode
+
+import pandas as pd
+import requests
+
 from ..config import settings
 from ..utils.logging import get_logger
 
@@ -10,12 +16,20 @@ NYC_OD_BASE = "https://data.cityofnewyork.us/resource"
 DATASETS = {
     "311": ("erm2-nwe9.json", {"$limit": 1500, "$select": "unique_key,created_date,latitude,longitude,complaint_type"}),
     "evictions": ("6z8x-wfk4.json", {"$limit": 2000}),
+    "filed_evictions": (settings.filed_evictions_dataset, {"$limit": 2000}),
     "hpd_complaints": ("uwyv-629c.json", {"$limit": 1500}),
 }
 
 HEADERS = {"Accept": "application/json"}
 if settings.socrata_app_token:
     HEADERS["X-App-Token"] = settings.socrata_app_token
+
+HPD_PLACEHOLDER = [
+    {"complaint_id": "hpd-placeholder-1", "latitude": 40.815, "longitude": -73.941, "borough": "MANHATTAN"},
+    {"complaint_id": "hpd-placeholder-2", "latitude": 40.700, "longitude": -73.920, "borough": "BROOKLYN"},
+    {"complaint_id": "hpd-placeholder-3", "latitude": 40.844, "longitude": -73.864, "borough": "BRONX"},
+    {"complaint_id": "hpd-placeholder-4", "latitude": 40.580, "longitude": -74.150, "borough": "STATEN ISLAND"},
+]
 
 def _url_with_token(endpoint: str, params: dict) -> str:
     p = dict(params)
@@ -52,11 +66,52 @@ def _download(endpoint: str, params: dict, out_path: str) -> bool:
         f.write(body)
     return True
 
+
+def _normalize_zip(value: pd.Series) -> pd.Series:
+    cleaned = value.astype(str).str.extract(r"(\d+)")[0]
+    cleaned = cleaned.fillna(value.astype(str))
+    return cleaned.str.split(".").str[0].str.zfill(5)
+
+
+def _download_filed_evictions_csv(url: str, out_path: str) -> bool:
+    try:
+        logger.info(f"Downloading filed evictions CSV: {url}")
+        r = requests.get(url, timeout=120)
+        r.raise_for_status()
+        df = pd.read_csv(io.BytesIO(r.content))
+    except Exception as exc:
+        logger.warning("Filed evictions download failed: %s", exc)
+        return False
+
+    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+    if "zipcode" in df.columns:
+        df["zipcode"] = _normalize_zip(df["zipcode"])
+    if "nyc_filings" in df.columns:
+        df["nyc_filings"] = pd.to_numeric(df["nyc_filings"], errors="coerce")
+        df = df[df["nyc_filings"].notna()]
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    df.to_json(out_path, orient="records")
+    logger.info("Saved filed evictions sample to %s", out_path)
+    return True
+
+
+def _write_hpd_placeholder(out_path: str):
+    logger.warning("HPD complaints endpoint restricted; writing placeholder sample to %s", out_path)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump(HPD_PLACEHOLDER, f)
+
 def download_small_samples():
     os.makedirs(settings.raw_dir, exist_ok=True)
     for name, (endpoint, params) in DATASETS.items():
         out = os.path.join(settings.raw_dir, f"{name}.json")
-        _download(endpoint, params, out)
+        if name == "filed_evictions" and endpoint.startswith("http"):
+            _download_filed_evictions_csv(endpoint, out)
+        else:
+            ok = _download(endpoint, params, out)
+            if not ok and name == "hpd_complaints":
+                _write_hpd_placeholder(out)
 
     # Boundary is optional; our code falls back to NYC bbox if 404
     boundary_url = "https://raw.githubusercontent.com/NYCPlanning/labs-layers/master/layers/city/city.geojson"

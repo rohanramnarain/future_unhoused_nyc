@@ -12,7 +12,7 @@ from ..utils.logging import get_logger
 logger = get_logger()
 
 
-FEATURE_COLS = ["n311_y", "nhpd_y", "nevict_y"]
+FEATURE_COLS = ["n311_y", "nhpd_y", "nevict_y", "nfiled_y"]
 TARGET = "risk_proxy"
 
 

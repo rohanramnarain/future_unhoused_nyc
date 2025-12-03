@@ -5,7 +5,7 @@ Equity-aware, spatiotemporal forecasting and an interactive Dash + deck.gl/Mapbo
 
 
 ## Features
-- H3 hex tiling of NYC; year-by-year features (311, HPD complaints, evictions, ACS, transit).*
+- H3 hex tiling of NYC; year-by-year features (311, HPD complaints, evictions served + filed, ACS, transit).*
 - Baseline ML (LightGBM) with lagged spatial features.
 - Conformal prediction for calibrated uncertainty bands; borough-level reconciliation.
 - Dash app: zoomable street map, time slider (2026–2029), scenario toggles, equity scorecard.
@@ -21,6 +21,7 @@ Create `.env` from `.env.sample`:
 - `MAPBOX_TOKEN` (required): for map tiles.
 - `CENSUS_API_KEY` (optional but recommended): to pull ACS.
 - `SOCRATA_APP_TOKEN` (optional): to avoid throttling NYC Open Data.
+- `FILED_EVICTIONS_DATASET` (optional): override the default Socrata dataset ID if NYC Open Data publishes a new filed-eviction feed.
 
 
 ## Quickstart
@@ -58,8 +59,9 @@ The repository ships with a compact bootstrap dataset so you can run end‑to‑
 ## Environment Variables
 Copy `.env.sample` to `.env` and set:
 - `MAPBOX_TOKEN` (required): public token to render map tiles
-- `CENSUS_API_KEY` (optional): higher‑throughput ACS pulls
+- `CENSUS_API_KEY` (optional): higher-throughput ACS pulls
 - `SOCRATA_APP_TOKEN` (optional): NYC Open Data rate limits
+- `FILED_EVICTIONS_DATASET` (optional): Socrata dataset identifier for filed-eviction counts; leave blank to use the default baked into `src/config.py`
 - Optional app knobs: `APP_PORT`, `APP_HOST`, `RANDOM_SEED`, `ADVANCED_MODEL`
 
 ## Quickstart (Local)
@@ -71,7 +73,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 cp .env.sample .env   # then edit with your keys
 
-# 2) Bootstrap a tiny dataset (311, HPD, evictions, MODZCTA, hex grid)
+# 2) Bootstrap a tiny dataset (311, HPD, served + filed evictions, MODZCTA, hex grid)
 python scripts/bootstrap_data.py
 
 # 3) Train baseline + write predictions and hex features
@@ -155,7 +157,7 @@ firebase deploy --project futureunhousednyc --only hosting
 ```
 
 ## Data & Modeling Summary
-- Features assembled per H3 hex/year (bootstrap subset) in `scripts/bootstrap_data.py` and `src/data/*.py`.
+- Features assembled per H3 hex/year (bootstrap subset) in `scripts/bootstrap_data.py` and `src/data/*.py`, including both served and newly added filed eviction counts (`nserve*`, `nfiled*`).
 - Baseline learner in `src/models/baselines.py` (LightGBM). Predictions + conformal bands written by `src/models/evaluate.py` to `data/processed/predictions_2026_2029.csv`.
 - Dash app in `src/app/server.py` builds a deck.gl spec and serves via Firebase Function (`functions/main.py`).
 

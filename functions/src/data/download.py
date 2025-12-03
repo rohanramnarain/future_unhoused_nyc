@@ -1,5 +1,8 @@
 # src/data/download.py
-import os, time, requests
+import json
+import os
+import time
+import requests
 from urllib.parse import urlencode
 from ..config import settings
 from ..utils.logging import get_logger
@@ -16,6 +19,13 @@ DATASETS = {
 HEADERS = {"Accept": "application/json"}
 if settings.socrata_app_token:
     HEADERS["X-App-Token"] = settings.socrata_app_token
+
+HPD_PLACEHOLDER = [
+    {"complaint_id": "hpd-placeholder-1", "latitude": 40.815, "longitude": -73.941, "borough": "MANHATTAN"},
+    {"complaint_id": "hpd-placeholder-2", "latitude": 40.700, "longitude": -73.920, "borough": "BROOKLYN"},
+    {"complaint_id": "hpd-placeholder-3", "latitude": 40.844, "longitude": -73.864, "borough": "BRONX"},
+    {"complaint_id": "hpd-placeholder-4", "latitude": 40.580, "longitude": -74.150, "borough": "STATEN ISLAND"},
+]
 
 def _url_with_token(endpoint: str, params: dict) -> str:
     p = dict(params)
@@ -52,11 +62,20 @@ def _download(endpoint: str, params: dict, out_path: str) -> bool:
         f.write(body)
     return True
 
+
+def _write_hpd_placeholder(out_path: str):
+    logger.warning("HPD complaints endpoint restricted; writing placeholder sample to %s", out_path)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump(HPD_PLACEHOLDER, f)
+
 def download_small_samples():
     os.makedirs(settings.raw_dir, exist_ok=True)
     for name, (endpoint, params) in DATASETS.items():
         out = os.path.join(settings.raw_dir, f"{name}.json")
-        _download(endpoint, params, out)
+        ok = _download(endpoint, params, out)
+        if not ok and name == "hpd_complaints":
+            _write_hpd_placeholder(out)
 
     # Boundary is optional; our code falls back to NYC bbox if 404
     boundary_url = "https://raw.githubusercontent.com/NYCPlanning/labs-layers/master/layers/city/city.geojson"
