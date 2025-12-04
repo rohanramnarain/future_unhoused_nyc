@@ -10,3 +10,4 @@ models/reports/
 data/raw/
 data/interim/
 data/processed/
+data/dcp_housingdb.zip

@@ -1,10 +1,19 @@
 # src/data/features.py
 import json
 import os
+from typing import Optional
+
 import pandas as pd
 import h3
 from shapely.geometry import Polygon, shape
 from shapely.prepared import prep
+
+try:  # Optional geocoder; only used if ENABLE_DCP_GEOCODER=1
+    from geopy.geocoders import Nominatim
+    from geopy.extra.rate_limiter import RateLimiter
+except Exception:  # pragma: no cover - runtime optional dependency
+    Nominatim = None
+    RateLimiter = None
 
 from .hexgrid import build_hex_index, h3_polygon_coords
 from .preprocess import load_sample
@@ -13,6 +22,122 @@ from ..utils.logging import get_logger
 
 logger = get_logger()
 YEARS = [2026, 2027, 2028, 2029]
+DCP_CSV_FILENAME = "dcp_housing.csv"
+DCP_GEOCODE_CACHE = os.path.join(settings.interim_dir, "dcp_geocode_cache.json")
+MAX_DCP_GEOCODES = int(os.getenv("MAX_DCP_GEOCODES", "150"))
+
+
+def _series_from_candidates(df: pd.DataFrame, candidates: list[str], default=None):
+    for name in candidates:
+        if name in df.columns:
+            return df[name]
+    return pd.Series(default, index=df.index)
+
+
+def _load_geocode_cache() -> dict:
+    if not os.path.exists(DCP_GEOCODE_CACHE):
+        return {}
+    try:
+        with open(DCP_GEOCODE_CACHE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_geocode_cache(cache: dict):
+    os.makedirs(settings.interim_dir, exist_ok=True)
+    with open(DCP_GEOCODE_CACHE, "w") as f:
+        json.dump(cache, f)
+
+
+def _format_dcp_address(row: pd.Series) -> Optional[str]:
+    parts = []
+    for key in ("house_number", "house_num", "stnumber"):
+        val = row.get(key) if key in row else None
+        if val and str(val).strip():
+            parts.append(str(val).strip())
+            break
+    street = row.get("street_name") or row.get("street") or row.get("streetname")
+    if street and str(street).strip():
+        parts.append(str(street).strip())
+    borough = row.get("borough") or row.get("boro") or row.get("borough_name")
+    if borough:
+        parts.append(str(borough).title())
+    if not parts:
+        return None
+    parts.append("NYC")
+    return ", ".join(parts)
+
+
+def _geocode_missing_projects(df: pd.DataFrame) -> pd.DataFrame:
+    missing = df[df["latitude"].isna() | df["longitude"].isna()]
+    if missing.empty:
+        return df
+    if not settings.enable_dcp_geocoder:
+        logger.info("DCP geocoder disabled; dropping %s rows without coordinates.", len(missing))
+        return df.dropna(subset=["latitude", "longitude"])
+    if Nominatim is None or RateLimiter is None:
+        logger.warning("geopy not installed; cannot geocode missing DCP rows (dropping %s rows).", len(missing))
+        return df.dropna(subset=["latitude", "longitude"])
+
+    user_agent = settings.geocoder_user_agent or "future-unhoused-nyc"
+    geocoder = Nominatim(user_agent=user_agent, timeout=10)
+    limiter = RateLimiter(geocoder.geocode, min_delay_seconds=1, swallow_exceptions=True)
+    cache = _load_geocode_cache()
+    updated = False
+    requests_made = 0
+
+    for idx, row in missing.iterrows():
+        key = str(row.get("bbl") or row.get("project_id") or idx)
+        lat_lon = cache.get(key)
+        if not lat_lon:
+            addr = _format_dcp_address(row)
+            if not addr:
+                continue
+            if requests_made >= MAX_DCP_GEOCODES:
+                break
+            loc = limiter(addr)
+            requests_made += 1
+            if not loc:
+                continue
+            lat_lon = (loc.latitude, loc.longitude)
+            cache[key] = lat_lon
+            updated = True
+        df.at[idx, "latitude"] = lat_lon[0]
+        df.at[idx, "longitude"] = lat_lon[1]
+
+    if updated:
+        _save_geocode_cache(cache)
+
+    return df.dropna(subset=["latitude", "longitude"])
+
+
+def _load_dcp_projects() -> pd.DataFrame:
+    path = os.path.join(settings.raw_dir, DCP_CSV_FILENAME)
+    if not os.path.exists(path):
+        logger.info("DCP Housing CSV missing at %s; skipping DCP feature engineering.", path)
+        return pd.DataFrame()
+    try:
+        df = pd.read_csv(path, low_memory=False)
+    except Exception as exc:
+        logger.warning("Failed to read DCP Housing CSV: %s", exc)
+        return pd.DataFrame()
+
+    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+    df["latitude"] = pd.to_numeric(_series_from_candidates(df, ["latitude", "lat"]), errors="coerce")
+    df["longitude"] = pd.to_numeric(_series_from_candidates(df, ["longitude", "lon", "lng"]), errors="coerce")
+    df["units_total"] = pd.to_numeric(_series_from_candidates(df, ["units_total", "total_units", "project_units", "tot_units"], default=0), errors="coerce").fillna(0)
+    df["units_affordable"] = pd.to_numeric(_series_from_candidates(df, ["units_affordable", "affordable_units", "aff_units"], default=0), errors="coerce").fillna(0)
+    df["exp_year"] = pd.to_numeric(_series_from_candidates(df, ["exp_year", "expiration_year", "reg_agreement_expiration_year"], default=None), errors="coerce")
+    df["regulatory_status"] = _series_from_candidates(df, ["regulatory_status", "status", "regulatorystatus"], default="")
+    df["bbl"] = _series_from_candidates(df, ["bbl"], default="").astype(str)
+    df = _geocode_missing_projects(df)
+    df = df.dropna(subset=["latitude", "longitude"]).copy()
+    if df.empty:
+        return df
+    df["hex"] = _h3_index_points(df, res=9)
+    df = df[df["hex"].notna()]
+    return df
 
 
 def _hex_polygon(cell: str) -> Polygon:
@@ -105,6 +230,7 @@ def build_features():
 
     hexes = build_hex_index()
     zip_hex_weights = _zip_hex_weights(hexes)
+    dcp_projects = _load_dcp_projects()
     # --- 311
     try:
         df311 = load_sample("311")
@@ -191,7 +317,33 @@ def build_features():
         .merge(gev, on="hex", how="left")
         .merge(gfiled, on="hex", how="left")
     )
-    for c in ["n311","nhpd","nevict", "nfiled"]:
+    if not dcp_projects.empty:
+        totals = (
+            dcp_projects.groupby("hex")[["units_total", "units_affordable"]]
+            .sum()
+            .rename(columns={
+                "units_total": "n_dcp_units",
+                "units_affordable": "n_dcp_aff_units",
+            })
+            .reset_index()
+        )
+        statuses = sorted([s for s in dcp_projects["regulatory_status"].dropna().unique() if str(s).strip()])
+        status_map = {status: idx + 1 for idx, status in enumerate(statuses)}
+        dcp_projects["_status_code"] = dcp_projects["regulatory_status"].map(status_map).fillna(0.0)
+        status_frame = (
+            dcp_projects.groupby("hex")["_status_code"].median().rename("dcp_status_median").reset_index()
+        )
+        feat = (
+            feat
+            .merge(totals, on="hex", how="left")
+            .merge(status_frame, on="hex", how="left")
+        )
+    else:
+        feat["n_dcp_units"] = 0.0
+        feat["n_dcp_aff_units"] = 0.0
+        feat["dcp_status_median"] = 0.0
+
+    for c in ["n311","nhpd","nevict", "nfiled", "n_dcp_units", "n_dcp_aff_units", "dcp_status_median"]:
         feat[c] = feat[c].fillna(0.0)
 
     # Yearly rows (placeholder trend so the app has data even if samples are sparse)
@@ -202,6 +354,28 @@ def build_features():
         growth = 1 + 0.03 * (y - 2025)
         for c in ["n311", "nhpd", "nevict", "nfiled"]:
             dfy[f"{c}_y"] = dfy[c] * growth
+        if not dcp_projects.empty:
+            expiring = (
+                dcp_projects[
+                    dcp_projects["exp_year"].notna()
+                    & dcp_projects["exp_year"].between(y, y + 5, inclusive="both")
+                ]
+                .groupby("hex")["units_total"]
+                .sum()
+            )
+            expired = (
+                dcp_projects[
+                    dcp_projects["exp_year"].notna()
+                    & (dcp_projects["exp_year"] < y)
+                ]
+                .groupby("hex")["units_total"]
+                .sum()
+            )
+            dfy["n_dcp_expiring5yr"] = dfy["hex"].map(expiring).fillna(0.0)
+            dfy["n_dcp_expired"] = dfy["hex"].map(expired).fillna(0.0)
+        else:
+            dfy["n_dcp_expiring5yr"] = 0.0
+            dfy["n_dcp_expired"] = 0.0
         feats.append(dfy)
     X = pd.concat(feats, ignore_index=True)
 

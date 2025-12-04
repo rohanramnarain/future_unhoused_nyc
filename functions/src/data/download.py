@@ -20,6 +20,10 @@ HEADERS = {"Accept": "application/json"}
 if settings.socrata_app_token:
     HEADERS["X-App-Token"] = settings.socrata_app_token
 
+SOCRATA_AUTH = None
+if settings.socrata_api_id and settings.socrata_api_secret:
+    SOCRATA_AUTH = (settings.socrata_api_id, settings.socrata_api_secret)
+
 HPD_PLACEHOLDER = [
     {"complaint_id": "hpd-placeholder-1", "latitude": 40.815, "longitude": -73.941, "borough": "MANHATTAN"},
     {"complaint_id": "hpd-placeholder-2", "latitude": 40.700, "longitude": -73.920, "borough": "BROOKLYN"},
@@ -37,11 +41,11 @@ def _download(endpoint: str, params: dict, out_path: str) -> bool:
     def attempt(pl):
         url = _url_with_token(endpoint, pl)
         logger.info(f"Downloading {url}")
-        r = requests.get(url, headers=HEADERS, timeout=60)
+        r = requests.get(url, headers=HEADERS, timeout=60, auth=SOCRATA_AUTH)
         if r.status_code == 429:
             logger.warning("429 Too Many Requests for %s — backing off 2s and retrying once.", endpoint)
             time.sleep(2)
-            r = requests.get(url, headers=HEADERS, timeout=60)
+            r = requests.get(url, headers=HEADERS, timeout=60, auth=SOCRATA_AUTH)
         if r.status_code in (403, 429):
             return r.status_code, None
         r.raise_for_status()

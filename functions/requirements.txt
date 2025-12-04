@@ -6,6 +6,7 @@ numpy>=1.26
 shapely>=2.0
 requests>=2.32
 h3>=3.7
+geopy>=2.4
 pyproj>=3.6
 tqdm>=4.66
 joblib>=1.4

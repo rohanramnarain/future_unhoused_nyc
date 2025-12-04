@@ -1,10 +1,14 @@
+import getpass
 import io
 import json
 import os
+import shutil
+import subprocess
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import pandas as pd
+import psycopg
 import requests
 
 from ..config import settings
@@ -24,6 +28,10 @@ HEADERS = {"Accept": "application/json"}
 if settings.socrata_app_token:
     HEADERS["X-App-Token"] = settings.socrata_app_token
 
+SOCRATA_AUTH = None
+if settings.socrata_api_id and settings.socrata_api_secret:
+    SOCRATA_AUTH = (settings.socrata_api_id, settings.socrata_api_secret)
+
 HPD_PLACEHOLDER = [
     {"complaint_id": "hpd-placeholder-1", "latitude": 40.815, "longitude": -73.941, "borough": "MANHATTAN"},
     {"complaint_id": "hpd-placeholder-2", "latitude": 40.700, "longitude": -73.920, "borough": "BROOKLYN"},
@@ -41,11 +49,11 @@ def _download(endpoint: str, params: dict, out_path: str) -> bool:
     def attempt(pl):
         url = _url_with_token(endpoint, pl)
         logger.info(f"Downloading {url}")
-        r = requests.get(url, headers=HEADERS, timeout=60)
+        r = requests.get(url, headers=HEADERS, timeout=60, auth=SOCRATA_AUTH)
         if r.status_code == 429:
             logger.warning("429 Too Many Requests for %s — backing off 2s and retrying once.", endpoint)
             time.sleep(2)
-            r = requests.get(url, headers=HEADERS, timeout=60)
+            r = requests.get(url, headers=HEADERS, timeout=60, auth=SOCRATA_AUTH)
         if r.status_code in (403, 429):
             return r.status_code, None
         r.raise_for_status()
@@ -136,3 +144,95 @@ def download_small_samples():
         logger.info("Saved MODZCTA boundaries")
     except Exception as e:
         logger.warning(f"MODZCTA download failed (ZIP lookups will be skipped): {e}")
+
+
+def download_dcp_housing() -> bool:
+    if not settings.nycdb_database_url:
+        logger.warning("NYCDB_DATABASE_URL not set; skipping DCP Housing download.")
+        return False
+
+    try:
+        params = _parse_db_url(settings.nycdb_database_url)
+    except ValueError as exc:
+        logger.warning("Invalid NYCDB_DATABASE_URL '%s': %s", settings.nycdb_database_url, exc)
+        return False
+
+    cli = settings.nycdb_cli or "nycdb"
+    if shutil.which(cli) is None:
+        logger.warning("nycdb CLI '%s' not found on PATH; skipping DCP Housing download.", cli)
+        return False
+
+    dataset_name = "dcp_housingdb"
+    env = os.environ.copy()
+    if params["password"]:
+        env["PGPASSWORD"] = params["password"]
+
+    def _run(step: str, allow_failure: bool = False) -> bool:
+        cmd = [
+            cli,
+            f"--{step}", dataset_name,
+            "-H", params["host"],
+            "--port", str(params["port"]),
+            "-D", params["database"],
+            "-U", params["user"],
+            "--root-dir", settings.data_dir,
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        if proc.returncode != 0:
+            log_fn = logger.info if allow_failure else logger.warning
+            log_fn(
+                "nycdb %s failed (code %s): %s",
+                step,
+                proc.returncode,
+                proc.stderr.strip() or proc.stdout.strip(),
+            )
+            return allow_failure
+        return True
+
+    logger.info("Running nycdb to refresh %s table (%s)", dataset_name, settings.nycdb_database_url)
+    _run("drop", allow_failure=True)
+
+    zip_path = os.path.join(settings.data_dir, f"{dataset_name}.zip")
+    if os.path.exists(zip_path):
+        try:
+            os.remove(zip_path)
+        except OSError as exc:
+            logger.info("Unable to remove cached %s: %s", zip_path, exc)
+
+    if not _run("download"):
+        return False
+    if not _run("load"):
+        return False
+
+    out_path = os.path.join(settings.raw_dir, "dcp_housing.csv")
+    query = f"SELECT * FROM {dataset_name}"
+    if settings.dcp_housing_limit:
+        query += f" LIMIT {int(settings.dcp_housing_limit)}"
+
+    try:
+        with psycopg.connect(settings.nycdb_database_url) as conn, conn.cursor() as cur, open(out_path, "wb") as f:
+            copy_sql = f"COPY ({query}) TO STDOUT WITH CSV HEADER"
+            with cur.copy(copy_sql) as copy:
+                while True:
+                    chunk = copy.read()
+                    if not chunk:
+                        break
+                    f.write(chunk)
+    except Exception as exc:
+        logger.warning("Failed to export DCP Housing table: %s", exc)
+        return False
+
+    logger.info("Saved DCP Housing CSV to %s", out_path)
+    return True
+
+
+def _parse_db_url(url: str) -> dict:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("postgres", "postgresql"):
+        raise ValueError("Unsupported scheme (expected postgresql://)")
+    user = parsed.username or getpass.getuser()
+    password = parsed.password or ""
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 5432
+    database = parsed.path.lstrip("/") or user
+    return {"user": user, "password": password, "host": host, "port": port, "database": database}
