@@ -21,7 +21,9 @@ if settings.socrata_app_token:
     HEADERS["X-App-Token"] = settings.socrata_app_token
 
 SOCRATA_AUTH = None
-if settings.socrata_api_id and settings.socrata_api_secret:
+if settings.socrata_username and settings.socrata_password:
+    SOCRATA_AUTH = (settings.socrata_username, settings.socrata_password)
+elif settings.socrata_api_id and settings.socrata_api_secret:
     SOCRATA_AUTH = (settings.socrata_api_id, settings.socrata_api_secret)
 
 HPD_PLACEHOLDER = [

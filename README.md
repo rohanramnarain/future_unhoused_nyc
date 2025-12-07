@@ -83,6 +83,15 @@ python scripts/train_baseline.py
 python scripts/run_app.py    # http://127.0.0.1:8050
 ```
 
+## Current Bootstrap Data (December 2025)
+- `data/raw/311.json` — sample of service requests already keyed to latitude/longitude.
+- `data/interim/hpd_hex_counts.json` — ≈6k per-hex HPD complaint totals produced by `scripts/aggregate_hpd_complaints.py`, which streams the `Housing_Maintenance_Code_Complaints_and_Problems_20251207.csv` download and aggregates straight into H3.
+- `data/raw/evictions.json` and `data/raw/filed_evictions.json` — executed and filed eviction events used for `nevict`/`nfiled` features.
+- `data/processed/hexes.geojson` — H3 resolution-9 grid clipped to NYC.
+- `data/processed/predictions_2026_2029.csv` — latest LightGBM outputs with conformal bands (written by `scripts/train_baseline.py`).
+
+If you ingest fresher HPD data, rerun `scripts/aggregate_hpd_complaints.py` before `scripts/train_baseline.py` so `src/data/features.py` can read the lighter-weight `hpd_hex_counts.json` instead of trying to load the raw CSV into memory.
+
 Makefile shortcuts:
 ```bash
 make setup   # venv + pip install
@@ -157,7 +166,7 @@ firebase deploy --project futureunhousednyc --only hosting
 ```
 
 ## Data & Modeling Summary
-- Features assembled per H3 hex/year (bootstrap subset) in `scripts/bootstrap_data.py` and `src/data/*.py`, including both served and newly added filed eviction counts (`nserve*`, `nfiled*`).
+- Features assembled per H3 hex/year (bootstrap subset) in `scripts/bootstrap_data.py` and `src/data/*.py`, including 311 complaints, aggregated HPD counts from `data/interim/hpd_hex_counts.json`, and served/filed eviction counts (`nserve*`, `nfiled*`).
 - Baseline learner in `src/models/baselines.py` (LightGBM). Predictions + conformal bands written by `src/models/evaluate.py` to `data/processed/predictions_2026_2029.csv`.
 - Dash app in `src/app/server.py` builds a deck.gl spec and serves via Firebase Function (`functions/main.py`).
 

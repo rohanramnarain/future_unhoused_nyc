@@ -24,6 +24,7 @@ logger = get_logger()
 YEARS = [2026, 2027, 2028, 2029]
 DCP_CSV_FILENAME = "dcp_housing.csv"
 DCP_GEOCODE_CACHE = os.path.join(settings.interim_dir, "dcp_geocode_cache.json")
+HPD_HEX_COUNTS = os.path.join(settings.interim_dir, "hpd_hex_counts.json")
 MAX_DCP_GEOCODES = int(os.getenv("MAX_DCP_GEOCODES", "150"))
 
 
@@ -140,6 +141,41 @@ def _load_dcp_projects() -> pd.DataFrame:
     return df
 
 
+def _load_hpd_hex_counts() -> pd.DataFrame:
+    if os.path.exists(HPD_HEX_COUNTS):
+        try:
+            df = pd.read_json(HPD_HEX_COUNTS)
+        except Exception as exc:
+            logger.warning("Failed to read aggregated HPD counts at %s: %s", HPD_HEX_COUNTS, exc)
+        else:
+            if {"hex", "nhpd"}.issubset(df.columns):
+                df = df.copy()
+                df = df[df["hex"].notna()]
+                df["hex"] = df["hex"].astype(str)
+                df["nhpd"] = pd.to_numeric(df["nhpd"], errors="coerce").fillna(0.0)
+                return df[["hex", "nhpd"]]
+            logger.warning("Aggregated HPD file missing required columns; falling back to raw sample.")
+
+    try:
+        hpd = load_sample("hpd_complaints")
+    except Exception as exc:
+        logger.warning("Failed to load HPD complaints sample: %s", exc)
+        return pd.DataFrame({"hex": [], "nhpd": []})
+
+    if {"latitude", "longitude"}.issubset(hpd.columns):
+        hpd = hpd.copy()
+        hpd["hex"] = _h3_index_points(hpd)
+        return (
+            hpd.groupby("hex")
+            .size()
+            .rename("nhpd")
+            .reset_index()
+        )
+
+    logger.warning("HPD complaints sample lacks coordinates; returning empty counts.")
+    return pd.DataFrame({"hex": [], "nhpd": []})
+
+
 def _hex_polygon(cell: str) -> Polygon:
     coords = [(pt["lng"], pt["lat"]) for pt in h3_polygon_coords(cell)]
     return Polygon(coords)
@@ -239,15 +275,7 @@ def build_features():
     except Exception:
         g311 = pd.DataFrame({"hex": [], "n311": []})
     # --- HPD
-    try:
-        hpd = load_sample("hpd_complaints")
-        if {"latitude","longitude"}.issubset(hpd.columns):
-            hpd["hex"] = _h3_index_points(hpd)
-            gh = hpd.groupby("hex").size().rename("nhpd").reset_index()
-        else:
-            gh = pd.DataFrame({"hex": [], "nhpd": []})
-    except Exception:
-        gh = pd.DataFrame({"hex": [], "nhpd": []})
+    gh = _load_hpd_hex_counts()
     # --- Evictions (executed notices)
     try:
         ev = load_sample("evictions")

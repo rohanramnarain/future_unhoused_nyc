@@ -26,6 +26,8 @@ class Settings:
     socrata_app_token: str = os.getenv("SOCRATA_APP_TOKEN", "")
     socrata_api_id: str = os.getenv("SOCRATA_API_ID", "")
     socrata_api_secret: str = os.getenv("SOCRATA_API_SECRET", "")
+    socrata_username: str = os.getenv("SOCRATA_USERNAME", "")
+    socrata_password: str = os.getenv("SOCRATA_PASSWORD", "")
     filed_evictions_dataset: str = os.getenv(
         "FILED_EVICTIONS_DATASET",
         "https://raw.githubusercontent.com/housing-data-coalition/rtc-eviction-viz/main/csv/filings_by_zip_since_032320_pulled_120120.csv",

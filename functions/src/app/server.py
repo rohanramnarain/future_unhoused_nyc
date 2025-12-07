@@ -160,39 +160,54 @@ def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred"):
 GJ = build_geojson_blob()
 
 ANALYSIS_COPY = html.Div(className="card", children=[
-    html.H5("How this forecast works"),
-    html.P("This panel demonstrates the risk of increasing amounts of unhoused residents in future years in New York City zipcodes through a data-intensive process."),
+    html.H5("What data feeds this map right now?"),
+    html.P("This deployment includes the freshest datasets we finished ingesting on December 7, 2025:"),
+    html.Ul([
+        html.Li("`data/raw/311.json` — service requests already geocoded to lat/lon."),
+        html.Li("`data/interim/hpd_hex_counts.json` — ≈6k pre-aggregated HPD complaint totals per H3 hex, produced by `scripts/aggregate_hpd_complaints.py`."),
+        html.Li("`data/raw/evictions.json` and `data/raw/filed_evictions.json` — executed and filed eviction events for `nevict`/`nfiled`."),
+        html.Li("`data/processed/hexes.geojson` — the NYC H3 grid we render and join against."),
+        html.Li("`data/processed/predictions_2026_2029.csv` — LightGBM outputs with conformal lower/upper bands.")
+    ]),
+    html.H6("Pipeline checkpoints"),
     html.P([
-        html.B("How did we ingest the data?"),
-        "`scripts/bootstrap_data.py` pulls compact NYC Open Data samples (311 complaints, HPD violations, evictions) plus the MODZCTA boundary layer, then `src/data/hexgrid.py` lays down the H3 mesh so every record has a consistent spatial key before downstream processing."
+        html.B("Ingestion · "),
+        "`scripts/bootstrap_data.py` grabs 311, eviction, and MODZCTA samples, then `scripts/aggregate_hpd_complaints.py` streams the large HPD CSV into the lightweight hex counts listed above."
     ]),
     html.P([
-        html.B("How are we projecting years?"),
-        "`src/data/features.py` attaches each incident to an H3 hex, clones the feature table for 2026–2029, applies a 3% yearly growth proxy, and fabricates a supervised target `risk_proxy = 0.5*HPD + 0.3*311 + 0.2*evictions` so the model can learn relative hot spots even in this tiny bootstrap."
+        html.B("Feature engineering · "),
+        "`src/data/features.py` reads the aggregated HPD counts plus 311/eviction events, maps everything to the hex grid, and clones the table for each forecast year with a modest 3% growth proxy (`*_y` columns)."
     ]),
     html.P([
-        html.B("What model did we use?"),
-        "`src/models/baselines.py` fits a LightGBM regressor (500 trees, learning rate 0.05) on the three engineered counts `n311_y`, `nhpd_y`, and `nevict_y`, using an 80/20 split to estimate generalization before saving the model artifact to `models/baseline_lgbm.joblib`."
+        html.B("Model + bands · "),
+        "`src/models/baselines.py` fits LightGBM on those yearly counts (currently `n311_y`, `nhpd_y`, `nevict_y`, `nfiled_y`), while `src/models/evaluate.py` wraps the predictions with symmetric conformal intervals so each hex gets `pred`, `lo`, and `hi`."
     ]),
     html.P([
-        html.B("What am I looking at?"),
-        "After predictions are generated, `src/models/evaluate.py` runs `split_conformal_intervals` to compute symmetric conformal bands so each hex receives `pred`, `lo`, and `hi`, and those values are then normalized to the [0, 1] range for consistent choropleth styling."
+        html.B("Interpreting the color · "),
+        "Scores are normalized between 0 and 1 inside each year, so a value near 1.0 simply means \"highest relative risk across the sampled hexes in that year\" rather than a literal count of future shelter placements."
     ]),
-    html.P([
-        html.B("What the score means? "),
-        "A value of 1.0 marks the highest estimated relative risk in this bootstrap sample while 0.0 represents the lowest; because only about 9% of hexes in the demo data show any activity, most scores cluster near 0.5, so interpret the map as a directional risk ranking instead of a literal count forecast."
-    ]),
-    html.H6("Where did the data come from?"),
+    html.H6("Source links"),
     html.Ul([
         html.Li(html.A("NYC 311 Service Requests", href="https://data.cityofnewyork.us/Social-Services/311-Service-Requests-from-2010-to-Present/erm2-nwe9", target="_blank")),
         html.Li(html.A("HPD Complaint Problems", href="https://data.cityofnewyork.us/Housing-Development/HPD-Complaint-Problems/uwyv-629c", target="_blank")),
         html.Li(html.A("Residential Evictions", href="https://data.cityofnewyork.us/City-Government/Eviction-Notices/6z8x-wfk4", target="_blank")),
         html.Li(html.A("MODZCTA Boundaries", href="https://data.cityofnewyork.us/City-Government/Modified-Zip-Code-Tabulation-Areas-MODZCTA-/pri4-ifjk", target="_blank")),
-        html.Li(html.A("American Community Survey Demographics", href="https://www.census.gov/data/developers/data-sets/acs-5year.html", target="_blank")),
-        html.Li(html.A("H3 Hexagonal Index", href="https://h3geo.org/", target="_blank"))
+        html.Li(html.A("American Community Survey 5-year", href="https://www.census.gov/data/developers/data-sets/acs-5year.html", target="_blank")),
+        html.Li(html.A("H3 Index", href="https://h3geo.org/", target="_blank"))
     ]),
-    html.P("The score is the model's normalized relative risk that a given H3 hex in NYC will see higher unhoused shelter demand during 2026-2029, based on LightGBM predictions trained on ACS socioeconomic indicators, shelter-intake records, weather shocks, and service gaps. A value of 1.0 means \"highest predicted risk among the sampled hexes,\" while 0.0 means \"lowest,\" so it's a comparative risk ranking and not necessarily a literal case count of future homelessness pressure in that hex."),
-    html.P("Want richer insight? Head over to my Github (Rohan Ramnarain) and swap the bootstrap data for the full NYC feeds, rerun `train_baseline.py`, and this explanation still holds while the score scale adapts to your data.")
+    html.P("Need higher fidelity? Swap the bootstrap inputs for full NYC feeds, rerun `scripts/aggregate_hpd_complaints.py` and `scripts/train_baseline.py`, then redeploy.")
+])
+
+LIGHTGBM_COPY = html.Div(className="card", children=[
+    html.H5("LightGBM in plain English"),
+    html.P("LightGBM is the learning engine behind this map. You can think of it like a group project made of many tiny decision trees:"),
+    html.Ul([
+        html.Li("Each tree asks a few yes/no questions such as \"Was the HPD count above the city median?\" and assigns a small score."),
+        html.Li("Trees are trained one after another; every new tree focuses on the mistakes the previous trees made, so the ensemble steadily improves."),
+        html.Li("After about 500 trees, we add up all of their suggestions to get a final risk score for every hex.")
+    ]),
+    html.P("Because LightGBM only needs the engineered counts (`n311_y`, `nhpd_y`, `nevict_y`, `nfiled_y`), it stays fast enough for this project while still capturing non-linear jumps—like a sudden spike in HPD complaints—without overwhelming non-technical collaborators."),
+    html.P("The conformal interval you see (lo/hi) wraps those scores with a \"give or take\" band so you can communicate uncertainty without diving into math.")
 ])
 
 app.layout = dbc.Container([
@@ -216,6 +231,7 @@ app.layout = dbc.Container([
     ], align="center", className="card"),
     html.Div(id="deck-container"),
     ANALYSIS_COPY,
+    LIGHTGBM_COPY,
 ], fluid=True)
 
 @app.callback(
