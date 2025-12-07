@@ -249,8 +249,8 @@ LIGHTGBM_COPY = html.Div(className="card", children=[
         "    |-- no  -> add +0.01 risk",
         style={"backgroundColor": "#f8fafc", "padding": "12px", "borderRadius": "6px", "border": "1px solid #e2e8f0", "fontFamily": "'Courier New', monospace"}
     ),
-    html.P("Because LightGBM only needs the engineered counts (`n311_y`, `nhpd_y`, `nevict_y`, `nfiled_y`), it stays fast enough for this project while still capturing non-linear jumps—like a sudden spike in HPD complaints—without overwhelming non-technical collaborators."),
-    html.P("The conformal interval you see (lo/hi) wraps those scores with a \"give or take\" band so you can communicate uncertainty without diving into math.")
+    html.P("Because LightGBM only needs the engineered counts (`n311_y`, `nhpd_y`, `nevict_y`, `nfiled_y`), it stays fast enough for this project while still capturing non-linear jumps, such as a sudden spike in HPD complaints, without overwhelming non-technical collaborators."),
+    html.P("The conformal interval you see (lo/hi) wraps those scores with a \"give or take\" band to show variance.")
 ])
 
 app.layout = dbc.Container([
