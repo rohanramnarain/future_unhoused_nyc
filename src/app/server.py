@@ -6,7 +6,7 @@ from shapely.geometry import shape
 from shapely.strtree import STRtree
 
 import dash
-from dash import html, dcc, Output, Input
+from dash import html, dcc, Output, Input, State, ctx
 import dash_bootstrap_components as dbc  # <-- this import was missing
 
 from ..config import settings
@@ -249,16 +249,19 @@ app.layout = dbc.Container([
         "Color encodes predicted relative risk (0–1).",
     ]),
     dbc.Row([
-        dbc.Col(dbc.Input(
-            id="zip-input",
-            type="text",
-            placeholder="Enter NYC ZIP (e.g., 10027) and press Enter",
-            debounce=True,
-            maxLength=10,
-            inputMode="numeric",
-            autoComplete="postal-code",
-        ), md=4),
-        dbc.Col(html.Small("Valid NYC ZIPs will recenter the map automatically."), md=8)
+        dbc.Col(dbc.InputGroup([
+            dbc.Input(
+                id="zip-input",
+                type="text",
+                placeholder="Enter NYC ZIP (e.g., 10027)",
+                debounce=False,
+                maxLength=10,
+                inputMode="numeric",
+                autoComplete="postal-code",
+            ),
+            dbc.Button("Go", id="zip-submit", n_clicks=0, color="primary", outline=False),
+        ]), md=5),
+        dbc.Col(html.Small("Type a valid NYC ZIP then hit Enter or Go to fly to that area."), md=7)
     ], align="center", className="card"),
     dbc.Row([
         dbc.Col(dcc.Slider(id="year", min=2026, max=2029, value=2026, step=1,
@@ -282,13 +285,18 @@ app.layout = dbc.Container([
     Output("deck-container", "children"),
     Input("year", "value"),
     Input("metric", "value"),
-    Input("zip-input", "value"),
+    Input("zip-submit", "n_clicks"),
+    Input("zip-input", "n_submit"),
+    State("zip-input", "value"),
 )
-def update_map(year, metric, zip_value):
+def update_map(year, metric, zip_clicks, zip_enter, zip_value):  # pragma: no cover - UI wiring
     year_features = [f for f in GJ["features"] if f["properties"]["year"] == year]
     year_gj = {"type": "FeatureCollection", "features": year_features}
 
-    focus_state = _zip_focus_view_state(zip_value)
+    trigger_id = ctx.triggered_id if ctx.triggered_id else None
+    focus_state = None
+    if trigger_id in ("zip-submit", "zip-input"):
+        focus_state = _zip_focus_view_state(zip_value)
     spec = make_deck_spec(year_gj, year=year, color_metric=metric, focus_view_state=focus_state)
     spec["mapboxApiAccessToken"] = settings.mapbox_token or ""
     html_spec = json.dumps(spec)
