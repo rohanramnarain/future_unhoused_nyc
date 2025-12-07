@@ -232,12 +232,23 @@ ANALYSIS_COPY = html.Div(className="card", children=[
 
 LIGHTGBM_COPY = html.Div(className="card", children=[
     html.H5("LightGBM in plain English"),
-    html.P("LightGBM is the learning engine behind this map. You can think of it like a group project made of many tiny decision trees:"),
+    html.P("LightGBM (Light Gradient Boosting Machine) is the learning engine behind this map. You can think of it like a group project made of many tiny decision trees:"),
     html.Ul([
         html.Li("Each tree asks a few yes/no questions such as \"Was the HPD count above the city median?\" and assigns a small score."),
         html.Li("Trees are trained one after another; every new tree focuses on the mistakes the previous trees made, so the ensemble steadily improves."),
         html.Li("After about 500 trees, we add up all of their suggestions to get a final risk score for every hex.")
     ]),
+    html.P("Here is a toy tree similar to the ones LightGBM builds inside this project:"),
+    html.Pre(
+        "nHPD_y > 40?\n"
+        "|-- yes: n311_y > 60?\n"
+        "|   |-- yes -> add +0.25 risk\n"
+        "|   |-- no  -> add +0.12 risk\n"
+        "|-- no : nevict_y > 15?\n"
+        "    |-- yes -> add +0.08 risk\n"
+        "    |-- no  -> add +0.01 risk",
+        style={"backgroundColor": "#f8fafc", "padding": "12px", "borderRadius": "6px", "border": "1px solid #e2e8f0", "fontFamily": "'Courier New', monospace"}
+    ),
     html.P("Because LightGBM only needs the engineered counts (`n311_y`, `nhpd_y`, `nevict_y`, `nfiled_y`), it stays fast enough for this project while still capturing non-linear jumps—like a sudden spike in HPD complaints—without overwhelming non-technical collaborators."),
     html.P("The conformal interval you see (lo/hi) wraps those scores with a \"give or take\" band so you can communicate uncertainty without diving into math.")
 ])
