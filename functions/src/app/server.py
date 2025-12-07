@@ -208,11 +208,11 @@ ANALYSIS_COPY = html.Div(className="card", children=[
     ]),
     html.P([
         html.B("Feature engineering · "),
-        "`src/data/features.py` reads the aggregated HPD counts plus 311/eviction events, maps everything to the hex grid, and clones the table for each forecast year with a modest 3% growth proxy (`*_y` columns)."
+        "`src/data/features.py` reads the aggregated HPD counts plus 311/eviction events and DCP housing program data, maps everything to the hex grid, and clones the table for each forecast year with a modest 3% growth proxy (`*_y` columns)."
     ]),
     html.P([
         html.B("Model + bands · "),
-        "`src/models/baselines.py` fits LightGBM on those yearly counts (currently `n311_y`, `nhpd_y`, `nevict_y`, `nfiled_y`), while `src/models/evaluate.py` wraps the predictions with symmetric conformal intervals so each hex gets `pred`, `lo`, and `hi`."
+        "`src/models/baselines.py` fits LightGBM on nine engineered signals (`n311_y`, `nhpd_y`, `nevict_y`, `nfiled_y`, `n_dcp_units`, `n_dcp_aff_units`, `n_dcp_expiring5yr`, `n_dcp_expired`, `dcp_status_median`), while `src/models/evaluate.py` wraps the predictions with symmetric conformal intervals so each hex gets `pred`, `lo`, and `hi`."
     ]),
     html.P([
         html.B("Interpreting the color · "),
@@ -249,7 +249,7 @@ LIGHTGBM_COPY = html.Div(className="card", children=[
         "    |-- no  -> add +0.01 risk",
         style={"backgroundColor": "#f8fafc", "padding": "12px", "borderRadius": "6px", "border": "1px solid #e2e8f0", "fontFamily": "'Courier New', monospace"}
     ),
-    html.P("Because LightGBM only needs the engineered counts (`n311_y`, `nhpd_y`, `nevict_y`, `nfiled_y`), it stays fast enough for this project while still capturing non-linear jumps, such as a sudden spike in HPD complaints, without overwhelming non-technical collaborators."),
+    html.P("Because LightGBM only needs the engineered service counts plus DCP housing stats (`n311_y`, `nhpd_y`, `nevict_y`, `nfiled_y`, `n_dcp_units`, `n_dcp_aff_units`, `n_dcp_expiring5yr`, `n_dcp_expired`, `dcp_status_median`), it stays fast enough for this project while still capturing non-linear jumps, such as a sudden spike in HPD complaints, without overwhelming non-technical collaborators."),
     html.P("The conformal interval you see (lo/hi) wraps those scores with a \"give or take\" band to show variance.")
 ])
 

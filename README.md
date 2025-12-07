@@ -166,8 +166,8 @@ firebase deploy --project futureunhousednyc --only hosting
 ```
 
 ## Data & Modeling Summary
-- Features assembled per H3 hex/year (bootstrap subset) in `scripts/bootstrap_data.py` and `src/data/*.py`, including 311 complaints, aggregated HPD counts from `data/interim/hpd_hex_counts.json`, and served/filed eviction counts (`nserve*`, `nfiled*`).
-- Baseline learner in `src/models/baselines.py` (LightGBM). Predictions + conformal bands written by `src/models/evaluate.py` to `data/processed/predictions_2026_2029.csv`.
+- Features assembled per H3 hex/year (bootstrap subset) in `scripts/bootstrap_data.py` and `src/data/*.py`, including 311 complaints, aggregated HPD counts from `data/interim/hpd_hex_counts.json`, served/filed eviction counts (`nserve*`, `nfiled*`), and DCP housing metrics (`n_dcp_units`, `n_dcp_aff_units`, `n_dcp_expiring5yr`, `n_dcp_expired`, `dcp_status_median`).
+- Baseline learner in `src/models/baselines.py` (LightGBM) trains on all nine engineered signals (`n311_y`, `nhpd_y`, `nevict_y`, `nfiled_y`, and the five DCP features). Predictions + conformal bands written by `src/models/evaluate.py` to `data/processed/predictions_2026_2029.csv`.
 - Dash app in `src/app/server.py` builds a deck.gl spec and serves via Firebase Function (`functions/main.py`).
 
 ## Project URLs
