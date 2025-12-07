@@ -1,5 +1,5 @@
 # src/app/server.py
-import os, json
+import os, json, re
 from typing import Dict
 import pandas as pd
 from shapely.geometry import shape
@@ -23,18 +23,19 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LITERA])
 server = app.server
 
 
-def _build_zip_lookup():
+def _build_zip_assets():
     if not os.path.exists(MODZCTA_PATH):
         logger.warning("ZIP boundary file missing at %s; tooltips will omit ZIP codes.", MODZCTA_PATH)
-        return None
+        return None, {}
     try:
         with open(MODZCTA_PATH, "r") as f:
             data = json.load(f)
     except Exception as exc:
         logger.warning("Failed to load MODZCTA boundaries (%s); tooltips will omit ZIP codes.", exc)
-        return None
+        return None, {}
 
     geoms, attrs = [], []
+    centroids: dict[str, dict[str, float]] = {}
     for feat in data.get("features", []):
         geom = feat.get("geometry")
         props = feat.get("properties", {})
@@ -54,10 +55,12 @@ def _build_zip_lookup():
             "zip": zip_code,
             "zip_label": (props.get("label") or "").strip(),
         })
+        rep_point = poly.representative_point()
+        centroids[zip_code] = {"lat": rep_point.y, "lon": rep_point.x}
 
     if not geoms:
         logger.warning("Loaded MODZCTA boundaries but none were usable; tooltips will omit ZIP codes.")
-        return None
+        return None, {}
 
     tree = STRtree(geoms)
 
@@ -69,10 +72,36 @@ def _build_zip_lookup():
         return None
 
     logger.info("Loaded %s MODZCTA polygons for ZIP enrichment", len(geoms))
-    return lookup
+    return lookup, centroids
 
 
-ZIP_LOOKUP = _build_zip_lookup()
+ZIP_LOOKUP, ZIP_CENTROIDS = _build_zip_assets()
+
+
+def _normalize_zip(value: str | None) -> str | None:
+    if not value:
+        return None
+    digits = re.sub(r"\D", "", value)
+    if len(digits) < 5:
+        return None
+    return digits[:5]
+
+
+def _zip_focus_view_state(value: str | None) -> dict | None:
+    zip_code = _normalize_zip(value)
+    if not zip_code:
+        return None
+    centroid = ZIP_CENTROIDS.get(zip_code)
+    if not centroid:
+        return None
+    return {
+        "latitude": centroid["lat"],
+        "longitude": centroid["lon"],
+        "zoom": 12,
+        "pitch": 0,
+        "bearing": 0,
+        "transitionDuration": 600,
+    }
 
 def build_geojson_blob():
     if not (os.path.exists(PRED_PATH) and os.path.exists(HEX_GJ_PATH)):
@@ -125,7 +154,7 @@ def build_geojson_blob():
             })
     return {"type": "FeatureCollection", "features": feat_out}
 
-def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred"):
+def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred", focus_view_state: dict | None = None):
     # Define discrete bands so 0 stays transparent and quartiles deepen progressively
     brewer_stops = [
         {"max": 0.0, "color": [0, 0, 0, 0]},             # zero ⇒ transparent
@@ -135,7 +164,7 @@ def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred"):
         {"max": 0.9, "color": [253, 141, 60, 235]},      # orange-red (high)
         {"max": 1.0, "color": [189, 0, 38, 255]},        # dark red (extreme)
     ]
-    return {
+    spec = {
         "initialViewState": {"latitude": 40.7128, "longitude": -74.0060, "zoom": 10},
         "controller": True,
         "mapStyle": "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
@@ -155,6 +184,9 @@ def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred"):
             "lineWidthMinPixels": 0.6,
         }],
     }
+    if focus_view_state:
+        spec["focusViewState"] = focus_view_state
+    return spec
 
 # Precompute GeoJSON blob and embed via data URL
 GJ = build_geojson_blob()
@@ -217,6 +249,18 @@ app.layout = dbc.Container([
         "Color encodes predicted relative risk (0–1).",
     ]),
     dbc.Row([
+        dbc.Col(dbc.Input(
+            id="zip-input",
+            type="text",
+            placeholder="Enter NYC ZIP (e.g., 10027) and press Enter",
+            debounce=True,
+            maxLength=10,
+            inputMode="numeric",
+            autoComplete="postal-code",
+        ), md=4),
+        dbc.Col(html.Small("Valid NYC ZIPs will recenter the map automatically."), md=8)
+    ], align="center", className="card"),
+    dbc.Row([
         dbc.Col(dcc.Slider(id="year", min=2026, max=2029, value=2026, step=1,
                            marks={y: str(y) for y in [2026, 2027, 2028, 2029]}), md=8),
         dbc.Col(dbc.Select(
@@ -237,13 +281,15 @@ app.layout = dbc.Container([
 @app.callback(
     Output("deck-container", "children"),
     Input("year", "value"),
-    Input("metric", "value")
+    Input("metric", "value"),
+    Input("zip-input", "value"),
 )
-def update_map(year, metric):
+def update_map(year, metric, zip_value):
     year_features = [f for f in GJ["features"] if f["properties"]["year"] == year]
     year_gj = {"type": "FeatureCollection", "features": year_features}
 
-    spec = make_deck_spec(year_gj, year=year, color_metric=metric)
+    focus_state = _zip_focus_view_state(zip_value)
+    spec = make_deck_spec(year_gj, year=year, color_metric=metric, focus_view_state=focus_state)
     spec["mapboxApiAccessToken"] = settings.mapbox_token or ""
     html_spec = json.dumps(spec)
     iframe_template = """
@@ -261,6 +307,7 @@ def update_map(year, metric):
                 const spec = __DECK_SPEC__;
                 const layerSpec = spec.layers[0];
                 const { colorMetric = 'pred', colorStops = [], ...layerProps } = layerSpec;
+                const focusViewState = spec.focusViewState || null;
                 const defaultStops = [
                     { max: 0.0, color: [0, 0, 0, 0] },
                     { max: 0.4, color: [255, 255, 204, 120] },
@@ -301,7 +348,7 @@ def update_map(year, metric):
                 if (window.mapboxgl) {
                     mapboxgl.accessToken = spec.mapboxApiAccessToken;
                 }
-                const savedViewState = (window.parent && window.parent.__fhf_viewState) || null;
+                const savedViewState = focusViewState || (window.parent && window.parent.__fhf_viewState) || null;
                 const deckgl = new deck.DeckGL({
                     container: 'container',
                     mapboxApiAccessToken: spec.mapboxApiAccessToken,
@@ -334,6 +381,9 @@ def update_map(year, metric):
                         };
                     }
                 });
+                if (focusViewState && window.parent) {
+                    window.parent.__fhf_viewState = focusViewState;
+                }
       </script>
     </body></html>
     """
