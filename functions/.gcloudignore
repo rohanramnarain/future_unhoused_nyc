@@ -1,0 +1,10 @@
+# Ignore local dev artifacts
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+data/raw/
+data/interim/
+data/**/raw/
+data/**/interim/
+models/

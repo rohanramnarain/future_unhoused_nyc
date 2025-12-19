@@ -1,0 +1,13 @@
+# Global gcloud ignore for deploy
+functions/venv/
+functions/__pycache__/
+**/__pycache__/
+*.pyc
+.DS_Store
+functions/data/raw/
+functions/data/interim/
+functions/data/**/raw/
+functions/data/**/interim/
+functions/data/data/raw/
+functions/data/data/interim/
+functions/models/

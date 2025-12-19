@@ -1,21 +1,28 @@
 # src/app/server.py
-import os, json, re
-from typing import Dict
+import os, json, re, glob
+from typing import Dict, List
 import pandas as pd
 from shapely.geometry import shape
 from shapely.strtree import STRtree
 
 import dash
 from dash import html, dcc, Output, Input, State, ctx
-import dash_bootstrap_components as dbc  # <-- this import was missing
+import dash_bootstrap_components as dbc
 
 from ..config import settings
 from ..utils.logging import get_logger
 
 # Files produced by the pipeline
-PRED_PATH = os.path.join(settings.processed_dir, "predictions_2026_2029.csv")
+PRED_BASE = os.path.join(settings.processed_dir, "predictions_2026_2029.csv")
+PRED_PATTERN = os.path.join(settings.processed_dir, "predictions_*_2026_2029.csv")
 HEX_GJ_PATH = os.path.join(settings.processed_dir, "hexes.geojson")
 MODZCTA_PATH = os.path.join(settings.external_dir, "modzcta.geojson")
+
+MODEL_LABELS = {
+    "lgbm": "LightGBM",
+    "xgb": "XGBoost",
+    "rf": "Random Forest",
+}
 
 logger = get_logger()
 
@@ -103,26 +110,24 @@ def _zip_focus_view_state(value: str | None) -> dict | None:
         "transitionDuration": 600,
     }
 
-def build_geojson_blob():
-    if not (os.path.exists(PRED_PATH) and os.path.exists(HEX_GJ_PATH)):
-        # Friendly message if user forgot to run training/bootstrap
+
+def _load_hex_features() -> List[dict]:
+    if not os.path.exists(HEX_GJ_PATH):
         raise FileNotFoundError(
-            "Missing predictions or hexes. Run:\n"
+            "Missing hex grid. Run:\n"
             "  python scripts/bootstrap_data.py\n"
-            "  python scripts/train_baseline.py\n"
             "to generate data/processed/ files."
         )
-    preds = pd.read_csv(PRED_PATH)
     with open(HEX_GJ_PATH, "r") as f:
         gj = json.load(f)
+    if "features" not in gj:
+        raise ValueError("Hex GeoJSON missing features array")
+    return gj["features"]
 
-    props_by_hex_year = {
-        (r.hex, int(r.year)): {"pred": float(r.pred), "lo": float(r.lo), "hi": float(r.hi)}
-        for r in preds.itertuples()
-    }
-    feat_out = []
+
+def _build_zip_props(hex_features: List[dict]):
     zip_props_by_hex = {}
-    for feat in gj["features"]:
+    for feat in hex_features:
         hx = feat["properties"]["hex"]
         info = {}
         if ZIP_LOOKUP:
@@ -134,35 +139,95 @@ def build_geojson_blob():
             except Exception as exc:
                 logger.debug("ZIP lookup failed for hex %s: %s", hx, exc)
         zip_props_by_hex[hx] = info
+    return zip_props_by_hex
 
-    for feat in gj["features"]:
+
+def build_geojson_blob(pred_path: str, hex_features: List[dict], zip_props_by_hex: dict):
+    preds = pd.read_csv(pred_path)
+    props_by_hex_year = {
+        (r.hex, int(r.year)): {"pred": float(r.pred), "lo": float(r.lo), "hi": float(r.hi)}
+        for r in preds.itertuples()
+    }
+
+    years = sorted(preds["year"].unique())
+    feat_out = []
+    for feat in hex_features:
         hx = feat["properties"]["hex"]
-        for year in sorted(preds["year"].unique()):
+        for year in years:
             p = props_by_hex_year.get((hx, int(year)))
             if p is None:
                 continue
+            zip_info = zip_props_by_hex.get(hx, {})
             feat_out.append({
                 "type": "Feature",
                 "geometry": feat["geometry"],
                 "properties": {
                     "hex": hx,
                     "year": int(year),
-                    "zip": zip_props_by_hex[hx].get("zip"),
-                    "zip_label": zip_props_by_hex[hx].get("zip_label"),
+                    "zip": zip_info.get("zip"),
+                    "zip_label": zip_info.get("zip_label"),
                     **p,
                 },
             })
     return {"type": "FeatureCollection", "features": feat_out}
 
+
+def _discover_prediction_files():
+    files: Dict[str, str] = {}
+    if os.path.exists(PRED_BASE):
+        files["lgbm"] = PRED_BASE
+    for path in glob.glob(PRED_PATTERN):
+        name = os.path.basename(path)
+        if not name.startswith("predictions_") or not name.endswith("_2026_2029.csv"):
+            continue
+        suffix = name[len("predictions_"):-len("_2026_2029.csv")]
+        if not suffix:
+            continue
+        key = suffix.lower()
+        files[key] = path
+
+    if not files:
+        raise FileNotFoundError(
+            "Missing predictions or hexes. Run:\n"
+            "  python scripts/bootstrap_data.py\n"
+            "  python scripts/train_baseline.py\n"
+            "to generate data/processed/ files."
+        )
+    return files
+
+
+def build_all_geojson_blobs():
+    pred_files = _discover_prediction_files()
+    hex_features = _load_hex_features()
+    zip_props_by_hex = _build_zip_props(hex_features)
+
+    blobs: Dict[str, dict] = {}
+    for key, path in pred_files.items():
+        blobs[key] = build_geojson_blob(path, hex_features, zip_props_by_hex)
+
+    ordered_keys = []
+    if "lgbm" in pred_files:
+        ordered_keys.append("lgbm")
+    for k in sorted(pred_files.keys()):
+        if k != "lgbm":
+            ordered_keys.append(k)
+
+    model_options = [{"label": MODEL_LABELS.get(k, k.upper()), "value": k} for k in ordered_keys]
+    default_model = ordered_keys[0]
+    return blobs, model_options, default_model
+
+
+GJ_BY_MODEL, MODEL_OPTIONS, DEFAULT_MODEL = build_all_geojson_blobs()
+
+
 def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred", focus_view_state: dict | None = None):
-    # Define discrete bands so 0 stays transparent and high risk pushes into deep reds
     brewer_stops = [
-        {"max": 0.0, "color": [0, 0, 0, 0]},             # zero ⇒ transparent
-        {"max": 0.4, "color": [255, 255, 204, 120]},     # pale yellow (low >0)
-        {"max": 0.6, "color": [255, 237, 160, 170]},     # light yellow (medium)
-        {"max": 0.8, "color": [254, 178, 76, 210]},      # orange (elevated)
-        {"max": 0.9, "color": [253, 141, 60, 235]},      # orange-red (high)
-        {"max": 1.0, "color": [189, 0, 38, 255]},        # dark red (extreme)
+        {"max": 0.0, "color": [0, 0, 0, 0]},
+        {"max": 0.4, "color": [255, 255, 204, 120]},
+        {"max": 0.6, "color": [255, 237, 160, 170]},
+        {"max": 0.8, "color": [254, 178, 76, 210]},
+        {"max": 0.9, "color": [253, 141, 60, 235]},
+        {"max": 1.0, "color": [189, 0, 38, 255]},
     ]
     spec = {
         "initialViewState": {"latitude": 40.7128, "longitude": -74.0060, "zoom": 10},
@@ -188,35 +253,33 @@ def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred", focus_v
         spec["focusViewState"] = focus_view_state
     return spec
 
-# Precompute GeoJSON blob and embed via data URL
-GJ = build_geojson_blob()
 
 ANALYSIS_COPY = html.Div(className="card", children=[
     html.H5("What data feeds this map right now?"),
     html.P("This deployment includes the freshest datasets we finished ingesting on December 7, 2025:"),
     html.Ul([
-        html.Li("`data/raw/311.json` — service requests already geocoded to lat/lon."),
-        html.Li("`data/interim/hpd_hex_counts.json` — ≈6k pre-aggregated HPD complaint totals per H3 hex, produced by `scripts/aggregate_hpd_complaints.py`."),
-        html.Li("`data/raw/evictions.json` and `data/raw/filed_evictions.json` — executed and filed eviction events for `nevict`/`nfiled`."),
-        html.Li("`data/processed/hexes.geojson` — the NYC H3 grid we render and join against."),
-        html.Li("`data/processed/predictions_2026_2029.csv` — LightGBM outputs with conformal lower/upper bands.")
+        html.Li("data/raw/311.json — service requests already geocoded to lat/lon."),
+        html.Li("data/interim/hpd_hex_counts.json — ≈6k pre-aggregated HPD complaint totals per H3 hex, produced by scripts/aggregate_hpd_complaints.py."),
+        html.Li("data/raw/evictions.json and data/raw/filed_evictions.json — executed and filed eviction events for nevict/nfiled."),
+        html.Li("data/processed/hexes.geojson — the NYC H3 grid we render and join against."),
+        html.Li("data/processed/predictions_<model>_2026_2029.csv — per-model outputs with conformal lower/upper bands and per-year percentile scaling."),
     ]),
     html.H6("Pipeline checkpoints"),
     html.P([
         html.B("Ingestion · "),
-        "`scripts/bootstrap_data.py` grabs 311, eviction, and MODZCTA samples, then `scripts/aggregate_hpd_complaints.py` streams the large HPD CSV into the lightweight hex counts listed above."
+        "scripts/bootstrap_data.py grabs 311, eviction, and MODZCTA samples, then scripts/aggregate_hpd_complaints.py streams the large HPD CSV into the lightweight hex counts listed above.",
     ]),
     html.P([
         html.B("Feature engineering · "),
-        "`src/data/features.py` reads the aggregated HPD counts plus 311/eviction events and DCP housing program data, maps everything to the hex grid, and clones the table for each forecast year with a modest 3% growth proxy (`*_y` columns)."
+        "src/data/features.py reads the aggregated HPD counts plus 311/eviction events and DCP housing program data, maps everything to the hex grid, and clones the table for each forecast year with a modest 3% growth proxy (*_y columns).",
     ]),
     html.P([
         html.B("Model + bands · "),
-        "`src/models/baselines.py` fits LightGBM on nine engineered signals (`n311_y`, `nhpd_y`, `nevict_y`, `nfiled_y`, `n_dcp_units`, `n_dcp_aff_units`, `n_dcp_expiring5yr`, `n_dcp_expired`, `dcp_status_median`), while `src/models/evaluate.py` wraps the predictions with symmetric conformal intervals so each hex gets `pred`, `lo`, and `hi`."
+        "src/models/baselines.py fits your selected model on nine engineered signals (n311_y, nhpd_y, nevict_y, nfiled_y, n_dcp_units, n_dcp_aff_units, n_dcp_expiring5yr, n_dcp_expired, dcp_status_median), while src/models/evaluate.py wraps the predictions with symmetric conformal intervals so each hex gets pred, lo, and hi.",
     ]),
     html.P([
         html.B("Interpreting the color · "),
-        "Scores are normalized between 0 and 1 inside each year, so a value near 1.0 simply means \"highest relative risk across the sampled hexes in that year\" rather than a literal count of future shelter placements."
+        "Scores are normalized between 0 and 1 inside each year for the selected model, so 1.0 means \"highest relative risk across hexes this year for this model\" rather than a literal count of future shelter placements.",
     ]),
     html.H6("Source links"),
     html.Ul([
@@ -225,33 +288,46 @@ ANALYSIS_COPY = html.Div(className="card", children=[
         html.Li(html.A("Residential Evictions", href="https://data.cityofnewyork.us/City-Government/Eviction-Notices/6z8x-wfk4", target="_blank")),
         html.Li(html.A("MODZCTA Boundaries", href="https://data.cityofnewyork.us/City-Government/Modified-Zip-Code-Tabulation-Areas-MODZCTA-/pri4-ifjk", target="_blank")),
         html.Li(html.A("American Community Survey 5-year", href="https://www.census.gov/data/developers/data-sets/acs-5year.html", target="_blank")),
-        html.Li(html.A("H3 Index", href="https://h3geo.org/", target="_blank"))
+        html.Li(html.A("H3 Index", href="https://h3geo.org/", target="_blank")),
     ]),
-    html.P("Need higher fidelity? Swap the bootstrap inputs for full NYC feeds, rerun `scripts/aggregate_hpd_complaints.py` and `scripts/train_baseline.py`, then redeploy.")
+    html.P("Need higher fidelity? Swap the bootstrap inputs for full NYC feeds, rerun scripts/aggregate_hpd_complaints.py and scripts/train_baseline.py, then redeploy."),
 ])
 
-LIGHTGBM_COPY = html.Div(className="card", children=[
-    html.H5("LightGBM in plain English"),
-    html.P("LightGBM (Light Gradient Boosting Machine) is the learning engine behind this map. You can think of it like a group project made of many tiny decision trees:"),
-    html.Ul([
-        html.Li("Each tree asks a few yes/no questions such as \"Was the HPD count above the city median?\" and assigns a small score."),
-        html.Li("Trees are trained one after another; every new tree focuses on the mistakes the previous trees made, so the ensemble steadily improves."),
-        html.Li("After about 500 trees, we add up all of their suggestions to get a final risk score for every hex.")
+
+MODEL_COPY = {
+    "lgbm": html.Div(className="card", children=[
+        html.H5("LightGBM in plain English"),
+        html.P("Light Gradient Boosting uses hundreds of tiny decision trees trained sequentially; each tree focuses on the residual mistakes of prior trees."),
+        html.Ul([
+            html.Li("Fast on sparse tabular data and handles nonlinear jumps in complaint/eviction patterns."),
+            html.Li("Same nine engineered signals (n311_y, nhpd_y, nevict_y, nfiled_y, n_dcp_units, n_dcp_aff_units, n_dcp_expiring5yr, n_dcp_expired, dcp_status_median)."),
+            html.Li("Conformal bands add a give-or-take range without extra retraining."),
+        ]),
     ]),
-    html.P("Here is a toy tree similar to the ones LightGBM builds inside this project:"),
-    html.Pre(
-        "nHPD_y > 40?\n"
-        "|-- yes: n311_y > 60?\n"
-        "|   |-- yes -> add +0.25 risk\n"
-        "|   |-- no  -> add +0.12 risk\n"
-        "|-- no : nevict_y > 15?\n"
-        "    |-- yes -> add +0.08 risk\n"
-        "    |-- no  -> add +0.01 risk",
-        style={"backgroundColor": "#f8fafc", "padding": "12px", "borderRadius": "6px", "border": "1px solid #e2e8f0", "fontFamily": "'Courier New', monospace"}
-    ),
-    html.P("Because LightGBM only needs the engineered service counts plus DCP housing stats (`n311_y`, `nhpd_y`, `nevict_y`, `nfiled_y`, `n_dcp_units`, `n_dcp_aff_units`, `n_dcp_expiring5yr`, `n_dcp_expired`, `dcp_status_median`), it stays fast enough for this project while still capturing non-linear jumps, such as a sudden spike in HPD complaints, without overwhelming non-technical collaborators."),
-    html.P("The conformal interval you see (lo/hi) wraps those scores with a \"give or take\" band to show variance.")
-])
+    "xgb": html.Div(className="card", children=[
+        html.H5("XGBoost at a glance"),
+        html.P("Another gradient-boosted tree ensemble; uses histogram splits for speed and strong performance on tabular problems."),
+        html.Ul([
+            html.Li("Captures sharp thresholds (e.g., sudden eviction spikes) while staying fast enough for frequent re-trains."),
+            html.Li("Same feature set and per-year percentile scaling as LightGBM so colors stay comparable within the model."),
+            html.Li("Choose this to test a stronger regularized boosting baseline."),
+        ]),
+    ]),
+    "rf": html.Div(className="card", children=[
+        html.H5("Random Forest basics"),
+        html.P("Hundreds of decorrelated decision trees averaged together; great for quick baselines and uncertainty intuition."),
+        html.Ul([
+            html.Li("Robust to noisy features and less sensitive to hyperparameters."),
+            html.Li("Produces smoother risk surfaces; percentile scaling still runs per year for this model."),
+            html.Li("Good sanity-check against boosting models."),
+        ]),
+    ]),
+}
+
+
+def model_copy_component(model_key: str):
+    return MODEL_COPY.get(model_key, MODEL_COPY.get(DEFAULT_MODEL))
+
 
 app.layout = dbc.Container([
     html.H3("The Future of the Unhoused — NYC Forecast Map (2026–2029)"),
@@ -272,11 +348,11 @@ app.layout = dbc.Container([
             ),
             dbc.Button("Go", id="zip-submit", n_clicks=0, color="primary", outline=False),
         ]), md=5),
-        dbc.Col(html.Small("Type a valid NYC ZIP then hit Enter or Go to fly to that area."), md=7)
+        dbc.Col(html.Small("Type a valid NYC ZIP then hit Enter or Go to fly to that area."), md=7),
     ], align="center", className="card"),
     dbc.Row([
         dbc.Col(dcc.Slider(id="year", min=2026, max=2029, value=2026, step=1,
-                           marks={y: str(y) for y in [2026, 2027, 2028, 2029]}), md=8),
+                           marks={y: str(y) for y in [2026, 2027, 2028, 2029]}), md=6),
         dbc.Col(dbc.Select(
             id="metric",
             value="pred",
@@ -285,23 +361,33 @@ app.layout = dbc.Container([
                 {"label": "Lower band (lo)", "value": "lo"},
                 {"label": "Upper band (hi)", "value": "hi"},
             ],
-        ), md=4)
+        ), md=3),
+        dbc.Col(dbc.Select(
+            id="model",
+            value=DEFAULT_MODEL,
+            options=MODEL_OPTIONS,
+        ), md=3),
     ], align="center", className="card"),
     html.Div(id="deck-container"),
+    html.Div(id="model-copy", children=model_copy_component(DEFAULT_MODEL)),
     ANALYSIS_COPY,
-    LIGHTGBM_COPY,
 ], fluid=True)
+
 
 @app.callback(
     Output("deck-container", "children"),
+    Output("model-copy", "children"),
+    Input("model", "value"),
     Input("year", "value"),
     Input("metric", "value"),
     Input("zip-submit", "n_clicks"),
     Input("zip-input", "n_submit"),
     State("zip-input", "value"),
 )
-def update_map(year, metric, zip_clicks, zip_enter, zip_value):  # pragma: no cover - UI wiring
-    year_features = [f for f in GJ["features"] if f["properties"]["year"] == year]
+def update_map(model_key, year, metric, zip_clicks, zip_enter, zip_value):  # pragma: no cover - UI wiring
+    model = model_key if model_key in GJ_BY_MODEL else DEFAULT_MODEL
+    gj_full = GJ_BY_MODEL[model]
+    year_features = [f for f in gj_full["features"] if f["properties"]["year"] == year]
     year_gj = {"type": "FeatureCollection", "features": year_features}
 
     trigger_id = ctx.triggered_id if ctx.triggered_id else None
@@ -310,7 +396,7 @@ def update_map(year, metric, zip_clicks, zip_enter, zip_value):  # pragma: no co
         focus_state = _zip_focus_view_state(zip_value)
     spec = make_deck_spec(year_gj, year=year, color_metric=metric, focus_view_state=focus_state)
     spec["mapboxApiAccessToken"] = settings.mapbox_token or ""
-    html_spec = json.dumps(spec)
+    json_spec = json.dumps(spec)
     iframe_template = """
     <!doctype html>
     <html><head>
@@ -400,19 +486,9 @@ def update_map(year, metric, zip_clicks, zip_enter, zip_value):  # pragma: no co
                         };
                     }
                 });
-                if (focusViewState && window.parent) {
-                    window.parent.__fhf_viewState = focusViewState;
-                }
       </script>
     </body></html>
     """
-    iframe_html = iframe_template.replace("__DECK_SPEC__", html_spec)
-    iframe = html.Iframe(
-        srcDoc=iframe_html,
-        style={"width": "100%", "height": "650px", "border": "1px solid #e5e7eb", "borderRadius": "10px"}
-    )
-
-    return iframe
-
-if __name__ == "__main__":
-    app.run_server(host=settings.app_host, port=settings.app_port, debug=True)
+    iframe_html = iframe_template.replace("__DECK_SPEC__", json_spec)
+    iframe = html.Iframe(srcDoc=iframe_html, style={"width": "100%", "height": "720px", "border": "none"})
+    return iframe, model_copy_component(model)

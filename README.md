@@ -6,9 +6,10 @@ Equity-aware, spatiotemporal forecasting and an interactive Dash + deck.gl/Mapbo
 
 ## Features
 - H3 hex tiling of NYC; year-by-year features (311, HPD complaints, evictions served + filed, ACS, transit).*
-- Baseline ML (LightGBM) with lagged spatial features.
+- Baseline LightGBM plus optional XGBoost/Random Forest toggles.
 - Conformal prediction for calibrated uncertainty bands; borough-level reconciliation.
 - Dash app: zoomable street map, time slider (2026–2029), scenario toggles, equity scorecard.
+- Model toggle in the app UI to compare LightGBM, XGBoost, and Random Forest outputs side-by-side.
 
 
 > *The repo includes a **small bootstrap sample** to run end-to-end quickly. Swap in full NYC datasets later.
@@ -76,11 +77,15 @@ cp .env.sample .env   # then edit with your keys
 # 2) Bootstrap a tiny dataset (311, HPD, served + filed evictions, MODZCTA, hex grid)
 python scripts/bootstrap_data.py
 
-# 3) Train baseline + write predictions and hex features
-python scripts/train_baseline.py
+# 3) Train + write predictions (pick a model)
+#    options: lgbm (default), xgb, rf
+python scripts/train_baseline.py --model lgbm
+python scripts/train_baseline.py --model xgb
+python scripts/train_baseline.py --model rf
 
 # 4) Run the Dash app locally
 python scripts/run_app.py    # http://127.0.0.1:8050
+#    Use the top-row dropdown to switch between models in the UI.
 ```
 
 ## Current Bootstrap Data (December 2025)
@@ -88,7 +93,7 @@ python scripts/run_app.py    # http://127.0.0.1:8050
 - `data/interim/hpd_hex_counts.json` — ≈6k per-hex HPD complaint totals produced by `scripts/aggregate_hpd_complaints.py`, which streams the `Housing_Maintenance_Code_Complaints_and_Problems_20251207.csv` download and aggregates straight into H3.
 - `data/raw/evictions.json` and `data/raw/filed_evictions.json` — executed and filed eviction events used for `nevict`/`nfiled` features.
 - `data/processed/hexes.geojson` — H3 resolution-9 grid clipped to NYC.
-- `data/processed/predictions_2026_2029.csv` — latest LightGBM outputs with conformal bands (written by `scripts/train_baseline.py`).
+- `data/processed/predictions_<model>_2026_2029.csv` — per-model outputs with conformal bands (written by `scripts/train_baseline.py --model <name>`).
 
 If you ingest fresher HPD data, rerun `scripts/aggregate_hpd_complaints.py` before `scripts/train_baseline.py` so `src/data/features.py` can read the lighter-weight `hpd_hex_counts.json` instead of trying to load the raw CSV into memory.
 
@@ -167,7 +172,7 @@ firebase deploy --project futureunhousednyc --only hosting
 
 ## Data & Modeling Summary
 - Features assembled per H3 hex/year (bootstrap subset) in `scripts/bootstrap_data.py` and `src/data/*.py`, including 311 complaints, aggregated HPD counts from `data/interim/hpd_hex_counts.json`, served/filed eviction counts (`nserve*`, `nfiled*`), and DCP housing metrics (`n_dcp_units`, `n_dcp_aff_units`, `n_dcp_expiring5yr`, `n_dcp_expired`, `dcp_status_median`).
-- Baseline learner in `src/models/baselines.py` (LightGBM) trains on all nine engineered signals (`n311_y`, `nhpd_y`, `nevict_y`, `nfiled_y`, and the five DCP features). Predictions + conformal bands written by `src/models/evaluate.py` to `data/processed/predictions_2026_2029.csv`.
+- Baseline learners in `src/models/baselines.py` (LightGBM, XGBoost, Random Forest) train on all nine engineered signals (`n311_y`, `nhpd_y`, `nevict_y`, `nfiled_y`, and the five DCP features). Predictions + conformal bands are written by `src/models/predict.py` to `data/processed/predictions_<model>_2026_2029.csv`.
 - Dash app in `src/app/server.py` builds a deck.gl spec and serves via Firebase Function (`functions/main.py`).
 
 ## Project URLs
