@@ -65,6 +65,27 @@ Copy `.env.sample` to `.env` and set:
 - `FILED_EVICTIONS_DATASET` (optional): Socrata dataset identifier for filed-eviction counts; leave blank to use the default baked into `src/config.py`
 - Optional app knobs: `APP_PORT`, `APP_HOST`, `RANDOM_SEED`, `ADVANCED_MODEL`
 
+### Training on a Real Outcome (instead of `risk_proxy`)
+By default, the baseline models train on a synthetic demo target column called `risk_proxy`.
+
+To train on a real label (e.g., future shelter entries/placements per hex-year), provide an outcomes table and point the pipeline at it:
+- `MODEL_TARGET`: the target column name you want to predict (e.g., `future_shelter_entries`)
+- `OUTCOMES_PATH`: path to a `.csv` or `.parquet` file keyed by `(hex, year)`
+- `OUTCOMES_HEX_COL`, `OUTCOMES_YEAR_COL` (optional): column names in the outcomes file (defaults: `hex`, `year`)
+- `OUTCOMES_VALUE_COL` (optional): the value column name in the outcomes file (defaults to `MODEL_TARGET`)
+- `TRAIN_YEARS` (optional): comma-separated years to train on (defaults to “any rows with non-null target”)
+- `PREDICT_YEARS` (optional): comma-separated years to write to `data/processed/predictions_*_<y0>_<y1>.csv` (default: `2026,2027,2028,2029`)
+
+Outcomes file schema (minimum):
+- `hex`: H3 index string
+- `year`: integer year
+- `<MODEL_TARGET>` (or `OUTCOMES_VALUE_COL`): numeric label
+
+Then run:
+```bash
+python scripts/train_baseline.py --model lgbm --outcomes-path path/to/outcomes.csv --target-col future_shelter_entries
+```
+
 ## Quickstart (Local)
 ```bash
 # 1) Create venv + install
@@ -95,6 +116,23 @@ python scripts/run_app.py    # http://127.0.0.1:8050
 - `data/processed/hexes.geojson` — H3 resolution-9 grid clipped to NYC.
 - `data/processed/predictions_<model>_2026_2029.csv` — per-model outputs with conformal bands (written by `scripts/train_baseline.py --model <name>`).
 
+### What the Map Predicts (Plain English)
+Each colored hex on the map represents a small area of NYC. The model uses **current neighborhood stress signals** to estimate **where next year’s homelessness-related activity will likely be higher relative to other areas**.
+
+**Inputs used (the “signals”):**
+- 311 service request volume (excluding homeless-related request types when the target is homeless-related 311)
+- HPD complaint totals
+- Eviction notices (served) and housing court filings (filed)
+- DCP housing program / regulatory status signals (units, affordability, expirations)
+
+**What it predicts right now (this deployment):**
+- A one-year-ahead count target derived from NYC Open Data 311: next-year `Homeless Person Assistance` + `Homeless Encampment` requests, aggregated to each hex.
+
+**What `pred` means in the prediction files / tooltips:**
+- `pred` is a **relative score** from 0 to 1 *within the selected year and model*.
+- A value near 1.0 means “this hex is among the highest predicted next-year levels compared to other hexes in the same year.”
+- It is **not** a probability and **not** the literal number of future requests; it’s a percentile-style ranking used so the map colors remain comparable as you change years.
+
 If you ingest fresher HPD data, rerun `scripts/aggregate_hpd_complaints.py` before `scripts/train_baseline.py` so `src/data/features.py` can read the lighter-weight `hpd_hex_counts.json` instead of trying to load the raw CSV into memory.
 
 Makefile shortcuts:
@@ -107,6 +145,68 @@ make app     # run local Dash server
 
 ## How the Model Output is Scaled
 Predictions and conformal bands are normalized per‑year to a 0–1 scale using percentile ranks (see `src/models/evaluate.py`). This yields consistent color contrast when moving the year slider.
+
+## Training Targets (Demo vs Real)
+By default, the baseline models train on a synthetic demo target column called `risk_proxy` that is computed from the engineered signals.
+
+The pipeline now supports training on a **real outcome column** via environment variables or CLI flags.
+
+### Configure the Target
+Set these env vars (or pass the equivalent CLI flags shown below):
+- `MODEL_TARGET`: the target column name you want to predict.
+- `OUTCOMES_PATH`: path to a `.csv` or `.parquet` file keyed by `(hex, year)`.
+- `OUTCOMES_HEX_COL`, `OUTCOMES_YEAR_COL` (optional): column names in the outcomes file (defaults: `hex`, `year`).
+- `OUTCOMES_VALUE_COL` (optional): value column name in the outcomes file (defaults to `MODEL_TARGET`).
+- `TRAIN_YEARS` (optional): comma-separated years to train on (defaults to “any rows with non-null target”).
+- `PREDICT_YEARS` (optional): comma-separated years to write predictions for (default: `2026,2027,2028,2029`).
+
+Outcomes file schema (minimum):
+- `hex`: H3 index string
+- `year`: integer year
+- `<MODEL_TARGET>` (or `OUTCOMES_VALUE_COL`): numeric label
+
+Example:
+```bash
+export MODEL_TARGET=future_shelter_entries
+export OUTCOMES_PATH=data/interim/outcomes.csv
+export TRAIN_YEARS=2019,2020,2021,2022,2023
+export PREDICT_YEARS=2026,2027,2028,2029
+
+python scripts/train_baseline.py --model lgbm --outcomes-path "$OUTCOMES_PATH" --target-col "$MODEL_TARGET"
+python scripts/train_baseline.py --model xgb  --outcomes-path "$OUTCOMES_PATH" --target-col "$MODEL_TARGET"
+python scripts/train_baseline.py --model rf   --outcomes-path "$OUTCOMES_PATH" --target-col "$MODEL_TARGET"
+```
+
+### Real Outcome Implemented: Next-Year Homeless-Related 311
+This repo now includes an end-to-end “real outcome” that is fully public and geocoded:
+
+- **Outcome:** next-year counts of NYC 311 requests with complaint types:
+	- `Homeless Person Assistance`
+	- `Homeless Encampment`
+- **Horizon:** 1 year (label for feature-year $y$ is the count observed in $y+1$).
+
+Build the outcomes table:
+```bash
+python scripts/build_outcomes_311_homeless.py \
+	--start-year 2019 --end-year 2024 --horizon 1 \
+	--target-col future_homeless_311 \
+	--out data/interim/outcomes_311_homeless.csv
+```
+
+Train against it:
+```bash
+export MODEL_TARGET=future_homeless_311
+export OUTCOMES_PATH=data/interim/outcomes_311_homeless.csv
+export TRAIN_YEARS=2019,2020,2021,2022,2023
+export PREDICT_YEARS=2026,2027,2028,2029
+
+python scripts/train_baseline.py --model lgbm --outcomes-path "$OUTCOMES_PATH" --target-col "$MODEL_TARGET"
+python scripts/train_baseline.py --model xgb  --outcomes-path "$OUTCOMES_PATH" --target-col "$MODEL_TARGET"
+python scripts/train_baseline.py --model rf   --outcomes-path "$OUTCOMES_PATH" --target-col "$MODEL_TARGET"
+```
+
+Leakage note:
+- When using the 311 homeless outcome above, the 311 feature (`n311`) explicitly excludes those homeless-related 311 complaint types to avoid leaking the label into the inputs.
 
 ## Firebase Deployment (Functions + Hosting)
 This project deploys the Dash app as a 2nd‑gen Python Cloud Function fronted by Firebase Hosting.
@@ -121,10 +221,15 @@ Build steps you’ll run repeatedly:
 ```bash
 cd /Users/rohanramnarain/Documents/future_unhoused_nyc
 
-# 1) Ensure function bundle contains latest code and data
+# 1) Ensure function bundle contains latest code
 rsync -a --delete src functions/src
-rsync -a --delete data functions/data
-rsync -a --delete models functions/models
+
+# 2) Copy only the data files needed at runtime.
+#    Do NOT sync raw datasets (some are multi-GB and will break Firebase packaging).
+mkdir -p functions/data/processed functions/data/external
+cp -f data/processed/hexes.geojson functions/data/processed/
+cp -f data/processed/predictions_*_2026_2029.csv functions/data/processed/
+cp -f data/external/modzcta.geojson functions/data/external/
 
 # 2) Ensure static JS/CSS assets are hosted by Firebase CDN (not via the function)
 mkdir -p public/assets
@@ -135,6 +240,11 @@ firebase deploy --project futureunhousednyc --only functions,hosting   # both
 firebase deploy --project futureunhousednyc --only functions            # just function code/data
 firebase deploy --project futureunhousednyc --only hosting              # just static assets/rewrites
 ```
+
+Notes:
+- The Firebase Python deploy tooling expects a local virtualenv at `functions/venv` for discovery. If missing, create it with:
+	`python3.11 -m venv --copies functions/venv && functions/venv/bin/pip install -r functions/requirements.txt`
+- Keeping `functions/data/` small is important; files larger than 2GiB will cause deploy packaging to fail.
 
 Important notes:
 - The Hosting rewrite in `firebase.json` forwards all paths to the function; we also serve `/assets/*` statically from `public/assets` to avoid function 500s for big JS/CSS.

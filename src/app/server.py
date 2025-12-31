@@ -13,8 +13,10 @@ from ..config import settings
 from ..utils.logging import get_logger
 
 # Files produced by the pipeline
-PRED_BASE = os.path.join(settings.processed_dir, "predictions_2026_2029.csv")
-PRED_PATTERN = os.path.join(settings.processed_dir, "predictions_*_2026_2029.csv")
+_PRED_YEARS = settings.predict_years or [2026, 2027, 2028, 2029]
+_Y0, _Y1 = min(_PRED_YEARS), max(_PRED_YEARS)
+PRED_BASE = os.path.join(settings.processed_dir, f"predictions_{_Y0}_{_Y1}.csv")
+PRED_PATTERN = os.path.join(settings.processed_dir, f"predictions_*_{_Y0}_{_Y1}.csv")
 HEX_GJ_PATH = os.path.join(settings.processed_dir, "hexes.geojson")
 MODZCTA_PATH = os.path.join(settings.external_dir, "modzcta.geojson")
 
@@ -64,7 +66,6 @@ def _build_zip_assets():
         })
         rep_point = poly.representative_point()
         centroids[zip_code] = {"lat": rep_point.y, "lon": rep_point.x}
-
     if not geoms:
         logger.warning("Loaded MODZCTA boundaries but none were usable; tooltips will omit ZIP codes.")
         return None, {}
@@ -178,9 +179,9 @@ def _discover_prediction_files():
         files["lgbm"] = PRED_BASE
     for path in glob.glob(PRED_PATTERN):
         name = os.path.basename(path)
-        if not name.startswith("predictions_") or not name.endswith("_2026_2029.csv"):
+        if not name.startswith("predictions_") or not name.endswith(f"_{_Y0}_{_Y1}.csv"):
             continue
-        suffix = name[len("predictions_"):-len("_2026_2029.csv")]
+        suffix = name[len("predictions_"):-len(f"_{_Y0}_{_Y1}.csv")]
         if not suffix:
             continue
         key = suffix.lower()
