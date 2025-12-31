@@ -15,6 +15,7 @@
     }
   ],
   "hosting": {
+    "site": "futureunhousednyc",
     "public": "public",
     "ignore": [
       "firebase.json",

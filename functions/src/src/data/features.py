@@ -17,11 +17,13 @@ except Exception:  # pragma: no cover - runtime optional dependency
 
 from .hexgrid import build_hex_index, h3_polygon_coords
 from .preprocess import load_sample
+from .outcomes import load_outcomes
+from .outcomes_311 import HOMELESS_311_TYPES
 from ..config import settings
 from ..utils.logging import get_logger
 
 logger = get_logger()
-YEARS = [2026, 2027, 2028, 2029]
+DEFAULT_PREDICT_YEARS = [2026, 2027, 2028, 2029]
 DCP_CSV_FILENAME = "dcp_housing.csv"
 DCP_GEOCODE_CACHE = os.path.join(settings.interim_dir, "dcp_geocode_cache.json")
 HPD_HEX_COUNTS = os.path.join(settings.interim_dir, "hpd_hex_counts.json")
@@ -260,9 +262,40 @@ def _h3_index_points(df: pd.DataFrame, lat_col="latitude", lon_col="longitude", 
         name="hex"
     )
 
-def build_features():
+def build_features(
+    *,
+    outcomes_path: str | None = None,
+    model_target: str | None = None,
+    years: list[int] | None = None,
+):
     os.makedirs(settings.interim_dir, exist_ok=True)
     os.makedirs(settings.processed_dir, exist_ok=True)
+
+    target_col = (model_target or settings.model_target or "risk_proxy").strip() or "risk_proxy"
+
+    # Optional outcomes merge (used for "real" training). Load early so we can
+    # include outcome years in the feature table.
+    outcomes_df: pd.DataFrame | None = None
+    outcomes_path = outcomes_path or settings.outcomes_path
+    if outcomes_path:
+        value_col = settings.outcomes_value_col.strip() if settings.outcomes_value_col else ""
+        value_col = value_col or target_col
+        try:
+            outcomes_df = load_outcomes(
+                outcomes_path,
+                hex_col=settings.outcomes_hex_col,
+                year_col=settings.outcomes_year_col,
+                value_col=value_col,
+            )
+        except Exception as exc:
+            logger.warning("Failed to load outcomes from %s (%s); continuing without outcomes.", outcomes_path, exc)
+            outcomes_df = None
+
+    predict_years = settings.predict_years or DEFAULT_PREDICT_YEARS
+    if years is None:
+        years = sorted(set(predict_years + (outcomes_df["year"].unique().tolist() if outcomes_df is not None else [])))
+    if not years:
+        years = DEFAULT_PREDICT_YEARS
 
     hexes = build_hex_index()
     zip_hex_weights = _zip_hex_weights(hexes)
@@ -270,6 +303,9 @@ def build_features():
     # --- 311
     try:
         df311 = load_sample("311")
+        # Avoid leakage if the outcome uses homeless-related 311 complaint types.
+        if "complaint_type" in df311.columns:
+            df311 = df311[~df311["complaint_type"].isin(HOMELESS_311_TYPES)].copy()
         df311["hex"] = _h3_index_points(df311)
         g311 = df311.groupby("hex").size().rename("n311").reset_index()
     except Exception:
@@ -376,7 +412,7 @@ def build_features():
 
     # Yearly rows (placeholder trend so the app has data even if samples are sparse)
     feats = []
-    for y in YEARS:
+    for y in years:
         dfy = feat.copy()
         dfy["year"] = y
         growth = 1 + 0.03 * (y - 2025)
@@ -415,6 +451,18 @@ def build_features():
         + 0.15 * X["nfiled_y"]
     )
     X["risk_proxy"] = (X["risk_proxy"] - X["risk_proxy"].min()) / (X["risk_proxy"].max() - X["risk_proxy"].min() + 1e-9)
+
+    # Merge outcomes (if provided). We standardize the outcome column name to
+    # `target_col` so the modeling code can refer to MODEL_TARGET consistently.
+    if outcomes_df is not None and not outcomes_df.empty:
+        merged = outcomes_df.rename(columns={"value": target_col})
+        before = len(X)
+        X = X.merge(merged, on=["hex", "year"], how="left")
+        after = len(X)
+        if after != before:
+            logger.warning("Outcomes merge changed row count (%s -> %s); check outcome keys.", before, after)
+        n_non_null = int(X[target_col].notna().sum()) if target_col in X.columns else 0
+        logger.info("Merged outcomes into features: target=%s non_null_rows=%s", target_col, n_non_null)
 
     out = os.path.join(settings.interim_dir, "features.parquet")
     X.to_parquet(out, index=False)

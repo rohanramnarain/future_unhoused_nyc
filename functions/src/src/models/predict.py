@@ -30,11 +30,23 @@ def _load_model(model_name: str):
     return joblib.load(model_path), key
 
 
-def make_predictions(features_path: str | None = None, model_name: str = "lgbm", features_df: pd.DataFrame | None = None):
+def make_predictions(
+    features_path: str | None = None,
+    model_name: str = "lgbm",
+    features_df: pd.DataFrame | None = None,
+    *,
+    target_col: str | None = None,
+):
     df = _load_features(features_path, features_df)
     model, key = _load_model(model_name)
 
-    preds = aggregate_to_predictions(df, model)
-    out = os.path.join(settings.processed_dir, f"predictions_{key}_2026_2029.csv")
+    preds_all = aggregate_to_predictions(df, model, target_col=target_col)
+
+    predict_years = settings.predict_years or [2026, 2027, 2028, 2029]
+    preds = preds_all[preds_all["year"].isin(predict_years)].copy()
+
+    # Keep backward-compatible filename pattern (used by the Dash app).
+    y0, y1 = min(predict_years), max(predict_years)
+    out = os.path.join(settings.processed_dir, f"predictions_{key}_{y0}_{y1}.csv")
     preds.to_csv(out, index=False)
     return out

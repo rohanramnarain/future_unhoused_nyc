@@ -271,15 +271,17 @@ ANALYSIS_COPY = html.Div(className="card", children=[
     ]),
     html.P([
         html.B("Feature engineering · "),
-        "src/data/features.py reads the aggregated HPD counts plus 311/eviction events and DCP housing program data, maps everything to the hex grid, and clones the table for each forecast year with a modest 3% growth proxy (*_y columns).",
+        "src/data/features.py reads the aggregated HPD counts plus 311/eviction events and DCP housing program data, maps everything to the hex grid, and clones the table for each forecast year with a modest 3% growth proxy (*_y columns). When the training target is homeless-related 311, those specific homeless-related complaint types are excluded from the 311 feature signal to avoid leakage.",
     ]),
     html.P([
         html.B("Model + bands · "),
-        "src/models/baselines.py fits your selected model on nine engineered signals (n311_y, nhpd_y, nevict_y, nfiled_y, n_dcp_units, n_dcp_aff_units, n_dcp_expiring5yr, n_dcp_expired, dcp_status_median), while src/models/evaluate.py wraps the predictions with symmetric conformal intervals so each hex gets pred, lo, and hi.",
+        "src/models/baselines.py fits your selected model on nine engineered signals (n311_y, nhpd_y, nevict_y, nfiled_y, n_dcp_units, n_dcp_aff_units, n_dcp_expiring5yr, n_dcp_expired, dcp_status_median) to predict next-year homeless-related 311 request volume (" 
+        "Homeless Person Assistance" 
+        "+ Homeless Encampment) at the hex level. src/models/evaluate.py wraps predictions with symmetric conformal intervals so each hex gets pred, lo, and hi.",
     ]),
     html.P([
         html.B("Interpreting the color · "),
-        "Scores are normalized between 0 and 1 inside each year for the selected model, so 1.0 means \"highest relative risk across hexes this year for this model\" rather than a literal count of future shelter placements.",
+        "The map colors show a within-year relative score (0–1) for the selected model: 1.0 means \"highest predicted next-year homeless-related 311 activity among hexes in this year\". It is not a probability, and it is not a literal predicted count; pred/lo/hi are percentile-scaled for visual comparability.",
     ]),
     html.H6("Source links"),
     html.Ul([
