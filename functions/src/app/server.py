@@ -299,6 +299,8 @@ ANALYSIS_COPY = html.Div(className="card", children=[
 MODEL_COPY = {
     "lgbm": html.Div(className="card", children=[
         html.H5("LightGBM in plain English"),
+        html.Img(src="/assets/model_diagram_lgbm.svg?v=4", className="model-diagram", alt="LightGBM diagram"),
+        html.Div("Diagram: boosting adds trees sequentially; LightGBM often grows leaf-wise.", className="model-diagram-note"),
         html.P("Light Gradient Boosting uses hundreds of tiny decision trees trained sequentially; each tree focuses on the residual mistakes of prior trees."),
         html.Ul([
             html.Li("Fast on sparse tabular data and handles nonlinear jumps in complaint/eviction patterns."),
@@ -308,6 +310,8 @@ MODEL_COPY = {
     ]),
     "xgb": html.Div(className="card", children=[
         html.H5("XGBoost at a glance"),
+        html.Img(src="/assets/model_diagram_xgb.svg?v=4", className="model-diagram", alt="XGBoost diagram"),
+        html.Div("Diagram: each tree is an incremental correction to the score.", className="model-diagram-note"),
         html.P("Another gradient-boosted tree ensemble; uses histogram splits for speed and strong performance on tabular problems."),
         html.Ul([
             html.Li("Captures sharp thresholds (e.g., sudden eviction spikes) while staying fast enough for frequent re-trains."),
@@ -317,6 +321,8 @@ MODEL_COPY = {
     ]),
     "rf": html.Div(className="card", children=[
         html.H5("Random Forest basics"),
+        html.Img(src="/assets/model_diagram_rf.svg?v=4", className="model-diagram", alt="Random Forest diagram"),
+        html.Div("Diagram: many independent trees vote/average into one prediction.", className="model-diagram-note"),
         html.P("Hundreds of decorrelated decision trees averaged together; great for quick baselines and uncertainty intuition."),
         html.Ul([
             html.Li("Robust to noisy features and less sensitive to hyperparameters."),
