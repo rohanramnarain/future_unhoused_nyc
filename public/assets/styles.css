@@ -1,3 +1,87 @@
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", Arial, sans-serif; }
-.card { padding: 12px; border: 1px solid #e5e7eb; border-radius: 10px; margin-bottom: 12px; }
-.small { color: #6b7280; font-size: 12px; }
+/* App-scoped styling (avoid clobbering Bootstrap `.card`, `.small`, etc.) */
+:root {
+	--fhf-bg: #f8fafc;
+	--fhf-surface: #ffffff;
+	--fhf-border: #e5e7eb;
+	--fhf-text: #0f172a;
+	--fhf-muted: #64748b;
+	--fhf-accent: #2563eb;
+}
+
+body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans",
+		"Droid Sans", "Helvetica Neue", Arial, sans-serif;
+	background: var(--fhf-bg);
+	color: var(--fhf-text);
+	line-height: 1.5;
+}
+
+a {
+	color: var(--fhf-accent);
+}
+
+.fhf-hero {
+	background: linear-gradient(180deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.0));
+	border: 1px solid var(--fhf-border);
+	border-radius: 16px;
+	padding: 18px 18px 12px;
+}
+
+.fhf-muted {
+	color: var(--fhf-muted);
+	font-size: 0.95rem;
+}
+
+.fhf-card {
+	background: var(--fhf-surface);
+	border: 1px solid var(--fhf-border);
+	border-radius: 14px;
+	box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.fhf-card-body {
+	padding: 14px;
+}
+
+.fhf-section-title {
+	font-weight: 650;
+	letter-spacing: -0.01em;
+}
+
+.fhf-map-shell iframe {
+	border-radius: 14px;
+	overflow: hidden;
+}
+
+/* Make long explainers more readable */
+.fhf-prose p,
+.fhf-prose li {
+	max-width: 72ch;
+}
+
+/* Accordion polish */
+.accordion {
+	--bs-accordion-border-color: var(--fhf-border);
+	--bs-accordion-btn-focus-box-shadow: 0 0 0 0.2rem rgba(37, 99, 235, 0.15);
+}
+.accordion-button {
+	font-weight: 600;
+}
+.accordion-button:not(.collapsed) {
+	color: var(--fhf-text);
+	background-color: rgba(37, 99, 235, 0.06);
+}
+
+.model-diagram {
+	width: 100%;
+	max-width: 980px;
+	height: auto;
+	display: block;
+	margin: 10px auto 6px;
+}
+
+.model-diagram-note {
+	color: var(--fhf-muted);
+	font-size: 12px;
+	margin-bottom: 8px;
+}
