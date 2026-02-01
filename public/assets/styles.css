@@ -16,6 +16,18 @@ body {
 	line-height: 1.5;
 }
 
+/* More breathing room for the overall page */
+.container-fluid {
+	padding-left: 1.25rem;
+	padding-right: 1.25rem;
+}
+@media (min-width: 768px) {
+	.container-fluid {
+		padding-left: 1.75rem;
+		padding-right: 1.75rem;
+	}
+}
+
 a {
 	color: var(--fhf-accent);
 }
@@ -81,7 +93,7 @@ a {
 }
 
 .model-diagram-note {
-	color: var(--fhf-muted);
+	color: #6b7280;
 	font-size: 12px;
 	margin-bottom: 8px;
 }

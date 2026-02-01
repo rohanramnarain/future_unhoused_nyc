@@ -28,7 +28,7 @@ MODEL_LABELS = {
 
 logger = get_logger()
 
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LITERA])
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LITERA, "/assets/styles.css"])
 server = app.server
 
 
@@ -465,7 +465,7 @@ app.layout = dbc.Container([
             ]),
         ),
     ]),
-], fluid=True)
+], fluid=True, className="px-3 px-md-4 pb-4")
 
 
 @app.callback(

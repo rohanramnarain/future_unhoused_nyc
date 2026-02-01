@@ -28,7 +28,7 @@ MODEL_LABELS = {
 
 logger = get_logger()
 
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LITERA])
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LITERA, "/assets/styles.css"])
 server = app.server
 
 
@@ -255,8 +255,7 @@ def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred", focus_v
     return spec
 
 
-ANALYSIS_COPY = html.Div(className="card", children=[
-    html.H5("What data feeds this map right now?"),
+ANALYSIS_COPY = html.Div(className="fhf-prose", children=[
     html.P("This deployment includes the freshest datasets we finished ingesting on December 7, 2025:"),
     html.Ul([
         html.Li("data/raw/311.json — service requests already geocoded to lat/lon."),
@@ -265,7 +264,7 @@ ANALYSIS_COPY = html.Div(className="card", children=[
         html.Li("data/processed/hexes.geojson — the NYC H3 grid we render and join against."),
         html.Li("data/processed/predictions_<model>_2026_2029.csv — per-model outputs with conformal lower/upper bands and per-year percentile scaling."),
     ]),
-    html.H6("Pipeline checkpoints"),
+    html.H6("Pipeline checkpoints", className="fhf-section-title"),
     html.P([
         html.B("Ingestion · "),
         "scripts/bootstrap_data.py grabs 311, eviction, and MODZCTA samples, then scripts/aggregate_hpd_complaints.py streams the large HPD CSV into the lightweight hex counts listed above.",
@@ -282,7 +281,7 @@ ANALYSIS_COPY = html.Div(className="card", children=[
         html.B("Interpreting the color · "),
         "Scores are normalized between 0 and 1 inside each year for the selected model, so 1.0 means \"highest relative risk across hexes this year for this model\" rather than a literal count of future shelter placements.",
     ]),
-    html.H6("Source links"),
+    html.H6("Source links", className="fhf-section-title"),
     html.Ul([
         html.Li(html.A("NYC 311 Service Requests", href="https://data.cityofnewyork.us/Social-Services/311-Service-Requests-from-2010-to-Present/erm2-nwe9", target="_blank")),
         html.Li(html.A("HPD Complaint Problems", href="https://data.cityofnewyork.us/Housing-Development/HPD-Complaint-Problems/uwyv-629c", target="_blank")),
@@ -296,8 +295,10 @@ ANALYSIS_COPY = html.Div(className="card", children=[
 
 
 MODEL_COPY = {
-    "lgbm": html.Div(className="card", children=[
-        html.H5("LightGBM in plain English"),
+    "lgbm": html.Div(className="fhf-prose", children=[
+        html.P("LightGBM = gradient boosting (leaf-wise trees)."),
+        html.Img(src="/assets/model_diagram_lgbm.svg?v=4", className="model-diagram", alt="LightGBM diagram"),
+        html.Div("Diagram: boosting adds trees sequentially; LightGBM often grows leaf-wise.", className="model-diagram-note"),
         html.P("Light Gradient Boosting uses hundreds of tiny decision trees trained sequentially; each tree focuses on the residual mistakes of prior trees."),
         html.Ul([
             html.Li("Fast on sparse tabular data and handles nonlinear jumps in complaint/eviction patterns."),
@@ -305,8 +306,10 @@ MODEL_COPY = {
             html.Li("Conformal bands add a give-or-take range without extra retraining."),
         ]),
     ]),
-    "xgb": html.Div(className="card", children=[
-        html.H5("XGBoost at a glance"),
+    "xgb": html.Div(className="fhf-prose", children=[
+        html.P("XGBoost = gradient boosting (level-wise trees)."),
+        html.Img(src="/assets/model_diagram_xgb.svg?v=4", className="model-diagram", alt="XGBoost diagram"),
+        html.Div("Diagram: each tree is an incremental correction to the score.", className="model-diagram-note"),
         html.P("Another gradient-boosted tree ensemble; uses histogram splits for speed and strong performance on tabular problems."),
         html.Ul([
             html.Li("Captures sharp thresholds (e.g., sudden eviction spikes) while staying fast enough for frequent re-trains."),
@@ -314,8 +317,10 @@ MODEL_COPY = {
             html.Li("Choose this to test a stronger regularized boosting baseline."),
         ]),
     ]),
-    "rf": html.Div(className="card", children=[
-        html.H5("Random Forest basics"),
+    "rf": html.Div(className="fhf-prose", children=[
+        html.P("Random Forest = many trees voting/averaging."),
+        html.Img(src="/assets/model_diagram_rf.svg?v=4", className="model-diagram", alt="Random Forest diagram"),
+        html.Div("Diagram: many independent trees vote/average into one prediction.", className="model-diagram-note"),
         html.P("Hundreds of decorrelated decision trees averaged together; great for quick baselines and uncertainty intuition."),
         html.Ul([
             html.Li("Robust to noisy features and less sensitive to hyperparameters."),
@@ -331,48 +336,136 @@ def model_copy_component(model_key: str):
 
 
 app.layout = dbc.Container([
-    html.H3("The Future of the Unhoused — NYC Forecast Map (2026–2029)"),
-    html.Div(className="small", children=[
-        "Zoomable choropleth by H3 hex; hover for values. ",
-        "Color encodes predicted relative risk (0–1).",
+    dbc.Row([
+        dbc.Col(
+            html.Div(className="fhf-hero", children=[
+                html.H2("The Future of the Unhoused", className="mb-0"),
+                html.Div("NYC Forecast Map (2026–2029)", className="fhf-muted"),
+                html.Div(className="fhf-muted", children=[
+                    "Open Data Week NYC · School of Data — exploratory forecast for discussion and learning.",
+                ]),
+                html.Div(className="mt-2", children=[
+                    dbc.Badge("Relative score (0–1)", color="primary", className="me-2", pill=True),
+                    dbc.Badge("Not a probability", color="secondary", className="me-2", pill=True),
+                    dbc.Badge("Data ingested: Dec 7, 2025", color="light", text_color="dark", pill=True),
+                ]),
+                html.Div(className="mt-2", children=[
+                    html.Span("Links: ", className="fhf-muted"),
+                    html.A("Sources", href="#sources", className="me-3"),
+                    html.A("Method", href="#method", className="me-3"),
+                    html.A("Limitations", href="#limits"),
+                ]),
+            ]),
+            md=12,
+        ),
+    ], className="mt-3 mb-3"),
+
+    dbc.Card(className="fhf-card mb-3", children=[
+        dbc.CardBody(className="fhf-card-body", children=[
+            html.H5("Controls", className="fhf-section-title mb-3"),
+            dbc.Row([
+                dbc.Col([
+                    dbc.Label("Jump to ZIP", html_for="zip-input", className="fhf-muted mb-1"),
+                    dbc.InputGroup([
+                        dbc.Input(
+                            id="zip-input",
+                            type="text",
+                            placeholder="Enter NYC ZIP (e.g., 10027)",
+                            debounce=False,
+                            maxLength=10,
+                            inputMode="numeric",
+                            autoComplete="postal-code",
+                        ),
+                        dbc.Button("Go", id="zip-submit", n_clicks=0, color="primary", outline=False),
+                    ]),
+                    html.Div("Tip: press Enter or click Go.", className="fhf-muted mt-1"),
+                ], md=5),
+
+                dbc.Col([
+                    dbc.Label("Metric", html_for="metric", className="fhf-muted mb-1"),
+                    dbc.Select(
+                        id="metric",
+                        value="pred",
+                        options=[
+                            {"label": "Prediction (μ)", "value": "pred"},
+                            {"label": "Lower band (lo)", "value": "lo"},
+                            {"label": "Upper band (hi)", "value": "hi"},
+                        ],
+                    ),
+                ], md=3),
+
+                dbc.Col([
+                    dbc.Label("Model", html_for="model", className="fhf-muted mb-1"),
+                    dbc.Select(
+                        id="model",
+                        value=DEFAULT_MODEL,
+                        options=MODEL_OPTIONS,
+                    ),
+                ], md=4),
+            ], className="g-3"),
+
+            html.Hr(className="my-3"),
+
+            dbc.Row([
+                dbc.Col([
+                    dbc.Label("Year", html_for="year", className="fhf-muted mb-1"),
+                    dcc.Slider(
+                        id="year",
+                        min=2026,
+                        max=2029,
+                        value=2026,
+                        step=1,
+                        marks={y: str(y) for y in [2026, 2027, 2028, 2029]},
+                    ),
+                ], md=12),
+            ]),
+        ]),
     ]),
-    dbc.Row([
-        dbc.Col(dbc.InputGroup([
-            dbc.Input(
-                id="zip-input",
-                type="text",
-                placeholder="Enter NYC ZIP (e.g., 10027)",
-                debounce=False,
-                maxLength=10,
-                inputMode="numeric",
-                autoComplete="postal-code",
-            ),
-            dbc.Button("Go", id="zip-submit", n_clicks=0, color="primary", outline=False),
-        ]), md=5),
-        dbc.Col(html.Small("Type a valid NYC ZIP then hit Enter or Go to fly to that area."), md=7),
-    ], align="center", className="card"),
-    dbc.Row([
-        dbc.Col(dcc.Slider(id="year", min=2026, max=2029, value=2026, step=1,
-                           marks={y: str(y) for y in [2026, 2027, 2028, 2029]}), md=6),
-        dbc.Col(dbc.Select(
-            id="metric",
-            value="pred",
-            options=[
-                {"label": "Prediction (μ)", "value": "pred"},
-                {"label": "Lower band (lo)", "value": "lo"},
-                {"label": "Upper band (hi)", "value": "hi"},
-            ],
-        ), md=3),
-        dbc.Col(dbc.Select(
-            id="model",
-            value=DEFAULT_MODEL,
-            options=MODEL_OPTIONS,
-        ), md=3),
-    ], align="center", className="card"),
-    html.Div(id="deck-container"),
-    html.Div(id="model-copy", children=model_copy_component(DEFAULT_MODEL)),
-    ANALYSIS_COPY,
-], fluid=True)
+
+    html.Div(id="deck-container", className="fhf-map-shell mb-3"),
+
+    dbc.Accordion(className="mb-4", always_open=False, start_collapsed=True, children=[
+        dbc.AccordionItem(
+            title="How to read this map",
+            children=html.Div(className="fhf-prose", children=[
+                html.P([
+                    "The colors show a within-year relative score (0–1) for the selected model. ",
+                    html.B("1.0"),
+                    " means the highest predicted relative risk among hexes in that year for that model.",
+                ]),
+                html.Ul([
+                    html.Li("This is not a probability and not a literal predicted count."),
+                    html.Li("Use Metric to view prediction (μ) or uncertainty bands (lo/hi)."),
+                    html.Li("Hover a hex for the value and year; ZIP is approximate."),
+                ]),
+            ]),
+        ),
+        dbc.AccordionItem(
+            title="Model in plain English",
+            children=html.Div(id="method", children=[
+                html.Div(id="model-copy", children=model_copy_component(DEFAULT_MODEL)),
+            ]),
+        ),
+        dbc.AccordionItem(
+            title="What data feeds this right now?",
+            children=html.Div(id="sources", children=[
+                ANALYSIS_COPY,
+            ]),
+        ),
+        dbc.AccordionItem(
+            title="Limitations & ethics",
+            children=html.Div(id="limits", className="fhf-prose", children=[
+                html.P("This is an exploratory, equity-sensitive visualization intended for discussion and learning."),
+                html.Ul([
+                    html.Li("Risk scores can be affected by reporting behavior (who files complaints/311), not only underlying need."),
+                    html.Li("Spatial aggregation (H3) smooths local variation; do not interpret a single hex as a definitive hotspot."),
+                    html.Li("Use this to prioritize questions and outreach, not to target enforcement or penalize communities."),
+                    html.Li("Always pair model outputs with lived experience, service provider context, and qualitative evidence."),
+                ]),
+            ]),
+        ),
+    ]),
+], fluid=True, className="px-3 px-md-4 pb-4")
 
 
 @app.callback(
