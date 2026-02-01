@@ -36,7 +36,7 @@ a {
 	background: linear-gradient(180deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.0));
 	border: 1px solid var(--fhf-border);
 	border-radius: 16px;
-	padding: 18px 18px 12px;
+	padding: 24px 24px 18px;
 }
 
 .fhf-muted {
@@ -52,7 +52,7 @@ a {
 }
 
 .fhf-card-body {
-	padding: 14px;
+	padding: 20px;
 }
 
 .fhf-section-title {
@@ -66,9 +66,25 @@ a {
 }
 
 /* Make long explainers more readable */
+.fhf-prose {
+	padding-right: 2px; /* avoids occasional glyph clipping at edges */
+}
+
 .fhf-prose p,
 .fhf-prose li {
 	max-width: 72ch;
+}
+
+.fhf-prose p {
+	margin-bottom: 0.75rem;
+}
+
+.fhf-prose ul {
+	margin-bottom: 0.75rem;
+}
+
+.fhf-prose li {
+	margin-bottom: 0.35rem;
 }
 
 /* Accordion polish */
@@ -82,6 +98,16 @@ a {
 .accordion-button:not(.collapsed) {
 	color: var(--fhf-text);
 	background-color: rgba(37, 99, 235, 0.06);
+}
+
+.accordion-body {
+	padding: 1.25rem;
+}
+
+@media (min-width: 768px) {
+	.accordion-body {
+		padding: 1.5rem;
+	}
 }
 
 .model-diagram {
