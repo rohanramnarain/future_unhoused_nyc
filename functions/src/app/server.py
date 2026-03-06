@@ -8,6 +8,7 @@ from shapely.strtree import STRtree
 import dash
 from dash import html, dcc, Output, Input, State, ctx
 import dash_bootstrap_components as dbc
+from flask import Response
 
 from ..config import settings
 from ..utils.logging import get_logger
@@ -36,6 +37,90 @@ app = dash.Dash(
     title="The Future of the Unhoused",
 )
 server = app.server
+ODW_INTRO_IMAGE = "/assets/odwintro.png"
+ODW_OUTRO_IMAGE = "/assets/odwoutro.png"
+
+
+@server.route("/odwintro")
+def odw_intro_page():  # pragma: no cover - simple route for static intro slide
+        page = f"""
+<!doctype html>
+<html>
+    <head>
+        <meta charset=\"utf-8\" />
+        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+        <title>ODW Intro</title>
+        <style>
+            html, body {{
+                margin: 0;
+                width: 100%;
+                height: 100%;
+                background: #0f3f8f;
+            }}
+            a {{
+                display: flex;
+                width: 100%;
+                height: 100%;
+                align-items: center;
+                justify-content: center;
+            }}
+            img {{
+                max-width: 100%;
+                max-height: 100%;
+                object-fit: contain;
+                display: block;
+            }}
+        </style>
+    </head>
+    <body>
+        <a href=\"/\" aria-label=\"Open main map\">
+            <img src=\"{ODW_INTRO_IMAGE}\" alt=\"Open Data Week intro slide\" />
+        </a>
+    </body>
+</html>
+"""
+        return Response(page, mimetype="text/html")
+
+
+@server.route("/odwoutro")
+def odw_outro_page():  # pragma: no cover - simple route for static outro slide
+        page = f"""
+<!doctype html>
+<html>
+    <head>
+        <meta charset=\"utf-8\" />
+        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+        <title>ODW Outro</title>
+        <style>
+            html, body {{
+                margin: 0;
+                width: 100%;
+                height: 100%;
+                background: #0f3f8f;
+            }}
+            .frame {{
+                display: flex;
+                width: 100%;
+                height: 100%;
+                align-items: center;
+                justify-content: center;
+            }}
+            img {{
+                max-width: 100%;
+                max-height: 100%;
+                object-fit: contain;
+                display: block;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class=\"frame\">
+            <img src=\"{ODW_OUTRO_IMAGE}\" alt=\"Open Data Week outro slide\" />
+        </div>
+    </body>
+</html>
+"""
+        return Response(page, mimetype="text/html")
 
 
 def _build_zip_assets():
@@ -358,6 +443,18 @@ TECHNICAL_DETAILS_COPY = html.Div(className="fhf-prose", children=[
         "src/models/baselines.py fits your selected model on nine engineered signals (n311_y, nhpd_y, nevict_y, nfiled_y, n_dcp_units, n_dcp_aff_units, n_dcp_expiring5yr, n_dcp_expired, dcp_status_median), while src/models/evaluate.py wraps the predictions with symmetric conformal intervals so each hex gets pred, lo, and hi.",
     ]),
     html.P("Need higher fidelity? Swap the bootstrap inputs for full NYC feeds, rerun scripts/aggregate_hpd_complaints.py and scripts/train_baseline.py, then redeploy."),
+    html.H6("GitHub", className="fhf-section-title"),
+    html.Ul([
+        html.Li([
+            "Repository: ",
+            html.A(
+                "github.com/rohanramnarain/future_unhoused_nyc",
+                href="https://github.com/rohanramnarain/future_unhoused_nyc",
+                target="_blank",
+            ),
+        ]),
+        html.Li("Use this repo for source code, pipeline scripts, deployment configuration, and change history."),
+    ]),
 ])
 
 
@@ -425,6 +522,11 @@ app.layout = dbc.Container([
                     dbc.Badge("Relative score (0–1)", color="primary", className="me-2", pill=True),
                     dbc.Badge("It's a percentile, not a probability", color="secondary", className="me-2", pill=True),
                     dbc.Badge("Data ingested: Dec 7, 2025", color="light", text_color="dark", pill=True),
+                    html.A(
+                        dbc.Badge("Thanks to Open Data Week and School of Data", color="light", text_color="dark", pill=True),
+                        href="/odwoutro",
+                        className="text-decoration-none ms-2",
+                    ),
                 ]),
                 html.Div(className="mt-3 fhf-links", children=[
                     html.A("Sources", id="link-sources", href="#sources", className="me-3"),
@@ -508,8 +610,23 @@ app.layout = dbc.Container([
             title="How to read this map",
             children=html.Div(className="fhf-prose", children=[
                 html.P([
-                    "Algorithms already shape daily life: what we see, what we are sold, how neighborhoods are marketed, and in some cases how housing decisions are priced or prioritized. ",
-                    "Those systems can reinforce inequality. This project tries to flip that logic and use forecasting tools for public good: first identify where homelessness-related pressure is likely to increase, then investigate why, and help target prevention before harm grows.",
+                    html.B("Algorithms"),
+                    " already shape ",
+                    html.B("daily life"),
+                    ": what we see, what we are sold, how neighborhoods are marketed, and in some cases how housing decisions are priced or prioritized. ",
+                    "Those systems can ",
+                    html.B("reinforce inequality"),
+                    ". This project tries to ",
+                    html.B("flip that logic"),
+                    " and use forecasting tools for ",
+                    html.B("public good"),
+                    ": first ",
+                    html.B("identify"),
+                    " where homelessness-related pressure is likely to increase, then ",
+                    html.B("investigate why"),
+                    ", and help target ",
+                    html.B("prevention"),
+                    " before harm grows.",
                 ]),
                 html.P([
                     "The colors show a ",
@@ -544,17 +661,17 @@ app.layout = dbc.Container([
             ]),
         ),
         dbc.AccordionItem(
-            item_id="method",
-            title="Model in plain English",
-            children=html.Div(id="method", children=[
-                html.Div(id="model-copy", children=ALL_MODEL_COPY),
-            ]),
-        ),
-        dbc.AccordionItem(
             item_id="sources",
             title="What data feeds this right now?",
             children=html.Div(id="sources", children=[
                 ANALYSIS_COPY,
+            ]),
+        ),
+        dbc.AccordionItem(
+            item_id="method",
+            title="Model in plain English",
+            children=html.Div(id="method", children=[
+                html.Div(id="model-copy", children=ALL_MODEL_COPY),
             ]),
         ),
         dbc.AccordionItem(
