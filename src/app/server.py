@@ -473,6 +473,9 @@ MODEL_COPY = {
         html.Img(src="/assets/model_diagram_lgbm.svg?v=4", className="model-diagram", alt="LightGBM diagram"),
         html.Div("Diagram: boosting adds trees sequentially; LightGBM often grows leaf-wise.", className="model-diagram-note"),
         html.P("Light Gradient Boosting uses hundreds of tiny decision trees trained sequentially; each tree focuses on the residual mistakes of prior trees."),
+        html.P("Basic tree example (this project): Tree 1 might split first on n311_y (high complaint density) and then on nevict_y; a hex with high n311_y and high nevict_y gets a higher baseline risk. Tree 2 then corrects misses by splitting on n_dcp_expiring5yr and n_dcp_aff_units, nudging risk up where affordability pressure is rising."),
+        html.P([html.B("How this is different from the other two algorithms"), ": LightGBM grows trees leaf-wise, so it can quickly chase the biggest remaining error pockets." ]),
+        html.P("Example: if the largest residual error is concentrated in hexes with very high n311_y but only mid-level nevict_y, LightGBM can keep splitting that branch deeper earlier than XGBoost (more level-wise growth), while Random Forest would not do sequential residual correction at all."),
         html.Ul([
             html.Li("Fast on sparse tabular data and handles nonlinear jumps in complaint/eviction patterns."),
             html.Li("Same nine engineered signals (n311_y, nhpd_y, nevict_y, nfiled_y, n_dcp_units, n_dcp_aff_units, n_dcp_expiring5yr, n_dcp_expired, dcp_status_median)."),
@@ -484,6 +487,9 @@ MODEL_COPY = {
         html.Img(src="/assets/model_diagram_xgb.svg?v=4", className="model-diagram", alt="XGBoost diagram"),
         html.Div("Diagram: each tree is an incremental correction to the score.", className="model-diagram-note"),
         html.P("Another gradient-boosted tree ensemble; uses histogram splits for speed and strong performance on tabular problems."),
+        html.P("Basic tree example (this project): an early XGBoost tree might split level-by-level on nfiled_y and nhpd_y to isolate hexes with both many filed evictions and many housing complaints. The next boosting tree can then focus on residual error inside that group, for example splitting on dcp_status_median to separate areas with weaker preservation pipeline signals."),
+        html.P([html.B("How this is different from the other two algorithms"), ": XGBoost typically grows trees level-wise with stronger explicit regularization, which often gives more conservative, stable corrections than LightGBM." ]),
+        html.P("Example: for hexes near the threshold on nfiled_y, XGBoost may apply a smaller step change after adding depth and penalty constraints, while LightGBM may make a sharper local correction and Random Forest would instead average many independent tree votes."),
         html.Ul([
             html.Li("Captures sharp thresholds (e.g., sudden eviction spikes) while staying fast enough for frequent re-trains."),
             html.Li("Same feature set and per-year percentile scaling as LightGBM so colors stay comparable within the model."),
@@ -495,6 +501,9 @@ MODEL_COPY = {
         html.Img(src="/assets/model_diagram_rf.svg?v=4", className="model-diagram", alt="Random Forest diagram"),
         html.Div("Diagram: many independent trees vote/average into one prediction.", className="model-diagram-note"),
         html.P("Hundreds of decorrelated decision trees averaged together; great for quick baselines and uncertainty intuition."),
+        html.P("Basic tree example (this project): one forest tree might split on n311_y then n_dcp_expired and predict high risk for complaint-heavy hexes with many expired affordable units. Another tree, built from a different bootstrap sample, might split on nevict_y then n_dcp_units and produce a moderate score. The model output is the average of those tree-level predictions."),
+        html.P([html.B("How this is different from the other two algorithms"), ": Random Forest trees are trained independently in parallel and then averaged, instead of sequentially correcting residuals like LightGBM and XGBoost." ]),
+        html.P("Example: if one tree overreacts to a spike in nhpd_y for a single hex, many other trees that did not see that exact bootstrap sample can pull the final score back toward the middle; boosting models would intentionally keep fitting that residual pattern across later trees."),
         html.Ul([
             html.Li("Robust to noisy features and less sensitive to hyperparameters."),
             html.Li("Produces smoother risk surfaces; percentile scaling still runs per year for this model."),
