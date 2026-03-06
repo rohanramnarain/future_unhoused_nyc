@@ -1,0 +1,3 @@
+zipcode,year,unemp_rate,med_income,med_rent,rent_burden,poverty_rate
+10001,2024,0.062,98000,2450,0.41,0.11
+10002,2024,0.074,72000,2050,0.47,0.18

@@ -64,6 +64,36 @@ Copy `.env.sample` to `.env` and set:
 - `SOCRATA_APP_TOKEN` (optional): NYC Open Data rate limits
 - `FILED_EVICTIONS_DATASET` (optional): Socrata dataset identifier for filed-eviction counts; leave blank to use the default baked into `src/config.py`
 - Optional app knobs: `APP_PORT`, `APP_HOST`, `RANDOM_SEED`, `ADVANCED_MODEL`
+- Optional ZIP economic scenario knobs: `USE_ZIP_ECON_SCENARIO`, `ZIP_ECON_SCENARIO_PATH`, `ZIP_ECON_SCENARIO_YEARS`
+
+### ZIP-Level Economic Scenario (2027-2029)
+To replace flat growth with ZIP-year assumptions for future years, build a scenario file and let `src/data/features.py` consume it.
+
+1. Prepare baseline ZIP economics CSV:
+	- Path example: `data/external/zip_econ_baseline_hist.csv`
+	- Required columns: `zipcode,year,unemp_rate,med_income,med_rent,rent_burden`
+	- Template: `data/external/zip_econ_baseline_hist_template.csv`
+2. Prepare citywide macro forecast CSV:
+	- Path example: `data/external/nyc_macro_forecast_2027_2029.csv`
+	- Required columns: `year,city_unemp_growth,city_income_growth,city_rent_growth`
+	- Optional: `city_rent_burden_growth`
+	- Template: `data/external/nyc_macro_forecast_2027_2029_template.csv`
+3. Build ZIP-year scenario multipliers:
+```bash
+python scripts/build_zip_econ_scenario.py \
+  --baseline data/external/zip_econ_baseline_hist.csv \
+  --macro data/external/nyc_macro_forecast_2027_2029.csv \
+  --years 2027,2028,2029 \
+  --out data/interim/zip_econ_scenario_2027_2029.csv
+```
+4. Train as usual:
+```bash
+python scripts/train_baseline.py --model lgbm
+```
+
+Notes:
+- Scenario multipliers are applied only for `ZIP_ECON_SCENARIO_YEARS` (default `2027,2028,2029`).
+- 2026 and any year without scenario rows still use fallback growth.
 
 ### Training on a Real Outcome (instead of `risk_proxy`)
 By default, the baseline models train on a synthetic demo target column called `risk_proxy`.

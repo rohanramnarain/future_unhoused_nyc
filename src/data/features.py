@@ -28,6 +28,7 @@ DCP_CSV_FILENAME = "dcp_housing.csv"
 DCP_GEOCODE_CACHE = os.path.join(settings.interim_dir, "dcp_geocode_cache.json")
 HPD_HEX_COUNTS = os.path.join(settings.interim_dir, "hpd_hex_counts.json")
 MAX_DCP_GEOCODES = int(os.getenv("MAX_DCP_GEOCODES", "150"))
+ZIP_ECON_MULT_COLS = ["mult_n311", "mult_nhpd", "mult_nevict", "mult_nfiled"]
 
 
 def _series_from_candidates(df: pd.DataFrame, candidates: list[str], default=None):
@@ -245,6 +246,120 @@ def _zip_hex_weights(hexes: list[str]) -> dict[str, list[tuple[str, float]]]:
         logger.warning("MODZCTA overlaps computed but no ZIPs matched the H3 grid.")
     return weights
 
+
+def _load_zip_econ_scenario() -> pd.DataFrame:
+    if not settings.use_zip_econ_scenario:
+        return pd.DataFrame()
+
+    path = settings.zip_econ_scenario_path
+    if not path:
+        return pd.DataFrame()
+    if not os.path.exists(path):
+        logger.info("ZIP economic scenario file not found at %s; using fallback growth.", path)
+        return pd.DataFrame()
+
+    try:
+        if path.lower().endswith(".parquet"):
+            df = pd.read_parquet(path)
+        else:
+            df = pd.read_csv(path)
+    except Exception as exc:
+        logger.warning("Failed reading ZIP economic scenario at %s: %s", path, exc)
+        return pd.DataFrame()
+
+    required = {"zipcode", "year"}
+    if not required.issubset(df.columns):
+        logger.warning(
+            "ZIP economic scenario missing required columns %s; present columns: %s",
+            sorted(required),
+            sorted(df.columns),
+        )
+        return pd.DataFrame()
+
+    out = df.copy()
+    out["zipcode"] = (
+        out["zipcode"].astype(str).str.extract(r"(\d+)")[0].fillna("").str[:5].str.zfill(5)
+    )
+    out["year"] = pd.to_numeric(out["year"], errors="coerce")
+    out = out.dropna(subset=["zipcode", "year"])
+    out["year"] = out["year"].astype(int)
+
+    scenario_years = set(settings.zip_econ_scenario_years or [])
+    if scenario_years:
+        out = out[out["year"].isin(scenario_years)].copy()
+
+    if out.empty:
+        logger.warning("ZIP economic scenario file has no rows for scenario years %s", sorted(scenario_years))
+        return pd.DataFrame()
+
+    if not set(ZIP_ECON_MULT_COLS).issubset(out.columns):
+        # Accept shock-style files and derive multipliers when explicit multipliers are absent.
+        for c in ["rent_shock", "unemp_shock", "income_shock", "rent_burden_shock"]:
+            out[c] = pd.to_numeric(out[c], errors="coerce").fillna(0.0)
+
+        out["mult_n311"] = 1.0 + 0.35 * out["rent_burden_shock"] + 0.20 * out["unemp_shock"] - 0.10 * out["income_shock"]
+        out["mult_nhpd"] = 1.0 + 0.45 * out["rent_shock"] + 0.25 * out["rent_burden_shock"] + 0.15 * out["unemp_shock"] - 0.10 * out["income_shock"]
+        out["mult_nevict"] = 1.0 + 0.40 * out["unemp_shock"] + 0.25 * out["rent_shock"] + 0.10 * out["rent_burden_shock"] - 0.10 * out["income_shock"]
+        out["mult_nfiled"] = 1.0 + 0.45 * out["unemp_shock"] + 0.20 * out["rent_burden_shock"] + 0.10 * out["rent_shock"] - 0.10 * out["income_shock"]
+
+    for c in ZIP_ECON_MULT_COLS:
+        out[c] = pd.to_numeric(out[c], errors="coerce").fillna(1.0).clip(lower=0.30, upper=3.00)
+
+    out = out[["zipcode", "year", *ZIP_ECON_MULT_COLS]].drop_duplicates(subset=["zipcode", "year"])
+    logger.info(
+        "Loaded ZIP economic scenario rows=%s ZIPs=%s years=%s",
+        len(out),
+        out["zipcode"].nunique(),
+        sorted(out["year"].unique().tolist()),
+    )
+    return out
+
+
+def _build_hex_year_multipliers(
+    zip_hex_weights: dict[str, list[tuple[str, float]]],
+    zip_scenario: pd.DataFrame,
+) -> dict[tuple[str, int], dict[str, float]]:
+    if zip_scenario is None or zip_scenario.empty or not zip_hex_weights:
+        return {}
+
+    accum: dict[tuple[str, int], dict[str, float]] = {}
+    weight_sum: dict[tuple[str, int], float] = {}
+
+    for row in zip_scenario.itertuples(index=False):
+        zip_code = row.zipcode
+        year = int(row.year)
+        overlaps = zip_hex_weights.get(zip_code)
+        if not overlaps:
+            continue
+
+        mult_vals = {
+            "mult_n311": float(row.mult_n311),
+            "mult_nhpd": float(row.mult_nhpd),
+            "mult_nevict": float(row.mult_nevict),
+            "mult_nfiled": float(row.mult_nfiled),
+        }
+
+        for hex_id, w in overlaps:
+            key = (hex_id, year)
+            if key not in accum:
+                accum[key] = {c: 0.0 for c in ZIP_ECON_MULT_COLS}
+                weight_sum[key] = 0.0
+            for c in ZIP_ECON_MULT_COLS:
+                accum[key][c] += w * mult_vals[c]
+            weight_sum[key] += w
+
+    out: dict[tuple[str, int], dict[str, float]] = {}
+    for key, vals in accum.items():
+        total_w = weight_sum.get(key, 0.0)
+        if total_w <= 0:
+            continue
+        out[key] = {c: max(0.30, min(3.00, vals[c] / total_w)) for c in ZIP_ECON_MULT_COLS}
+
+    if out:
+        years = sorted({y for _, y in out.keys()})
+        logger.info("Constructed hex-level ZIP economic multipliers for years %s", years)
+    return out
+
 def _latlng_to_cell(lat: float, lon: float, res: int) -> str | None:
     if lat is None or lon is None:
         return None
@@ -299,6 +414,9 @@ def build_features(
 
     hexes = build_hex_index()
     zip_hex_weights = _zip_hex_weights(hexes)
+    zip_scenario = _load_zip_econ_scenario()
+    hex_year_multipliers = _build_hex_year_multipliers(zip_hex_weights, zip_scenario)
+    scenario_years = set(settings.zip_econ_scenario_years or [])
     dcp_projects = _load_dcp_projects()
     # --- 311
     try:
@@ -415,9 +533,24 @@ def build_features(
     for y in years:
         dfy = feat.copy()
         dfy["year"] = y
-        growth = 1 + 0.03 * (y - 2025)
-        for c in ["n311", "nhpd", "nevict", "nfiled"]:
-            dfy[f"{c}_y"] = dfy[c] * growth
+        use_zip_scenario = bool(hex_year_multipliers) and (y in scenario_years)
+        if use_zip_scenario:
+            for base_col, mult_col in [
+                ("n311", "mult_n311"),
+                ("nhpd", "mult_nhpd"),
+                ("nevict", "mult_nevict"),
+                ("nfiled", "mult_nfiled"),
+            ]:
+                mult_by_hex = {
+                    hex_id: vals[mult_col]
+                    for (hex_id, year), vals in hex_year_multipliers.items()
+                    if year == y
+                }
+                dfy[f"{base_col}_y"] = dfy[base_col] * dfy["hex"].map(mult_by_hex).fillna(1.0)
+        else:
+            growth = 1 + 0.03 * (y - 2025)
+            for c in ["n311", "nhpd", "nevict", "nfiled"]:
+                dfy[f"{c}_y"] = dfy[c] * growth
         if not dcp_projects.empty:
             expiring = (
                 dcp_projects[

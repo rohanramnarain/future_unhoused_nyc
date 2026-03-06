@@ -353,6 +353,7 @@ ANALYSIS_COPY = html.Div(className="fhf-prose", children=[
         html.Li([html.B("311"), " — NYC's non-emergency service request system."]),
         html.Li([html.B("HPD"), " — NYC Department of Housing Preservation and Development."]),
         html.Li([html.B("DCP"), " — NYC Department of City Planning."]),
+        html.Li([html.B("OMB"), " — NYC Office of Management and Budget (citywide economic forecast source)."]),
         html.Li([html.B("H3"), " — Uber's hexagonal geospatial indexing system used to divide the map into hexes."]),
         html.Li([html.B("MODZCTA"), " — Modified ZIP Code Tabulation Area (NYC's ZIP-like boundary geography)."]),
         html.Li([html.B("ACS"), " — American Community Survey (U.S. Census program)."]),
@@ -364,6 +365,14 @@ ANALYSIS_COPY = html.Div(className="fhf-prose", children=[
     html.Ul([
         html.Li("Target column: the model predicts a single outcome column for each hex-year (configured as MODEL_TARGET in the pipeline). In this deployment, that outcome is next-year homeless-related 311 activity at the hex level."),
         html.Li("How this becomes relative risk: the model first outputs raw predicted levels, then src/models/evaluate.py rescales those values within each year into percentile-style ranks on a 0-1 scale (shown as pred). Higher rank = relatively higher predicted risk versus other hexes that year."),
+    ]),
+    html.H6("How we predicted 2027-2029", className="fhf-section-title"),
+    html.Ul([
+        html.Li("Step 1 (local baseline): we estimate ZIP-level vulnerability using ACS data (income, rent burden, unemployment, and poverty rate), then map ZIP effects into H3 hexes via MODZCTA overlap weights."),
+        html.Li("Step 2 (citywide forecast): we pull NYC OMB forecast assumptions for 2027-2029 (citywide unemployment/income/rent growth)."),
+        html.Li("Step 3 (downscaling): each ZIP gets the citywide shock scaled by its vulnerability profile, so higher-income/lower-poverty ZIPs are damped while lower-income/higher-poverty ZIPs are amplified."),
+        html.Li("Step 4 (feature update): those ZIP-year multipliers update future feature columns (n311_y, nhpd_y, nevict_y, nfiled_y) for 2027-2029 before model scoring."),
+        html.Li("Step 5 (map output): model predictions are shown as within-year relative ranks (0-1), which preserves hotspot ordering but can visually compress year-to-year magnitude differences."),
     ]),
     html.H6("What those column names mean (plain English)", className="fhf-section-title"),
     html.Ul([
