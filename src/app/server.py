@@ -8,6 +8,7 @@ from shapely.strtree import STRtree
 import dash
 from dash import html, dcc, Output, Input, State, ctx
 import dash_bootstrap_components as dbc
+from flask import Response
 
 from ..config import settings
 from ..utils.logging import get_logger
@@ -36,6 +37,90 @@ app = dash.Dash(
     title="The Future of the Unhoused",
 )
 server = app.server
+ODW_INTRO_IMAGE = "/assets/odwintro.png"
+ODW_OUTRO_IMAGE = "/assets/odwoutro.png"
+
+
+@server.route("/odwintro")
+def odw_intro_page():  # pragma: no cover - simple route for static intro slide
+        page = f"""
+<!doctype html>
+<html>
+    <head>
+        <meta charset=\"utf-8\" />
+        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+        <title>ODW Intro</title>
+        <style>
+            html, body {{
+                margin: 0;
+                width: 100%;
+                height: 100%;
+                background: #0f3f8f;
+            }}
+            a {{
+                display: flex;
+                width: 100%;
+                height: 100%;
+                align-items: center;
+                justify-content: center;
+            }}
+            img {{
+                max-width: 100%;
+                max-height: 100%;
+                object-fit: contain;
+                display: block;
+            }}
+        </style>
+    </head>
+    <body>
+        <a href=\"/\" aria-label=\"Open main map\">
+            <img src=\"{ODW_INTRO_IMAGE}\" alt=\"Open Data Week intro slide\" />
+        </a>
+    </body>
+</html>
+"""
+        return Response(page, mimetype="text/html")
+
+
+@server.route("/odwoutro")
+def odw_outro_page():  # pragma: no cover - simple route for static outro slide
+        page = f"""
+<!doctype html>
+<html>
+    <head>
+        <meta charset=\"utf-8\" />
+        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+        <title>ODW Outro</title>
+        <style>
+            html, body {{
+                margin: 0;
+                width: 100%;
+                height: 100%;
+                background: #0f3f8f;
+            }}
+            .frame {{
+                display: flex;
+                width: 100%;
+                height: 100%;
+                align-items: center;
+                justify-content: center;
+            }}
+            img {{
+                max-width: 100%;
+                max-height: 100%;
+                object-fit: contain;
+                display: block;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class=\"frame\">
+            <img src=\"{ODW_OUTRO_IMAGE}\" alt=\"Open Data Week outro slide\" />
+        </div>
+    </body>
+</html>
+"""
+        return Response(page, mimetype="text/html")
 
 
 def _build_zip_assets():
@@ -437,6 +522,11 @@ app.layout = dbc.Container([
                     dbc.Badge("Relative score (0–1)", color="primary", className="me-2", pill=True),
                     dbc.Badge("It's a percentile, not a probability", color="secondary", className="me-2", pill=True),
                     dbc.Badge("Data ingested: Dec 7, 2025", color="light", text_color="dark", pill=True),
+                    html.A(
+                        dbc.Badge("Thanks to Open Data Week and School of Data", color="light", text_color="dark", pill=True),
+                        href="/odwoutro",
+                        className="text-decoration-none ms-2",
+                    ),
                 ]),
                 html.Div(className="mt-3 fhf-links", children=[
                     html.A("Sources", id="link-sources", href="#sources", className="me-3"),
