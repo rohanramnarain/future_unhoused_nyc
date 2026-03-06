@@ -358,6 +358,18 @@ TECHNICAL_DETAILS_COPY = html.Div(className="fhf-prose", children=[
         "src/models/baselines.py fits your selected model on nine engineered signals (n311_y, nhpd_y, nevict_y, nfiled_y, n_dcp_units, n_dcp_aff_units, n_dcp_expiring5yr, n_dcp_expired, dcp_status_median), while src/models/evaluate.py wraps the predictions with symmetric conformal intervals so each hex gets pred, lo, and hi.",
     ]),
     html.P("Need higher fidelity? Swap the bootstrap inputs for full NYC feeds, rerun scripts/aggregate_hpd_complaints.py and scripts/train_baseline.py, then redeploy."),
+    html.H6("GitHub", className="fhf-section-title"),
+    html.Ul([
+        html.Li([
+            "Repository: ",
+            html.A(
+                "github.com/rohanramnarain/future_unhoused_nyc",
+                href="https://github.com/rohanramnarain/future_unhoused_nyc",
+                target="_blank",
+            ),
+        ]),
+        html.Li("Use this repo for source code, pipeline scripts, deployment configuration, and change history."),
+    ]),
 ])
 
 
@@ -559,17 +571,17 @@ app.layout = dbc.Container([
             ]),
         ),
         dbc.AccordionItem(
-            item_id="method",
-            title="Model in plain English",
-            children=html.Div(id="method", children=[
-                html.Div(id="model-copy", children=ALL_MODEL_COPY),
-            ]),
-        ),
-        dbc.AccordionItem(
             item_id="sources",
             title="What data feeds this right now?",
             children=html.Div(id="sources", children=[
                 ANALYSIS_COPY,
+            ]),
+        ),
+        dbc.AccordionItem(
+            item_id="method",
+            title="Model in plain English",
+            children=html.Div(id="method", children=[
+                html.Div(id="model-copy", children=ALL_MODEL_COPY),
             ]),
         ),
         dbc.AccordionItem(
