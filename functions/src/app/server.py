@@ -13,8 +13,10 @@ from ..config import settings
 from ..utils.logging import get_logger
 
 # Files produced by the pipeline
-PRED_BASE = os.path.join(settings.processed_dir, "predictions_2026_2029.csv")
-PRED_PATTERN = os.path.join(settings.processed_dir, "predictions_*_2026_2029.csv")
+_PRED_YEARS = settings.predict_years or [2026, 2027, 2028, 2029]
+_Y0, _Y1 = min(_PRED_YEARS), max(_PRED_YEARS)
+PRED_BASE = os.path.join(settings.processed_dir, f"predictions_{_Y0}_{_Y1}.csv")
+PRED_PATTERN = os.path.join(settings.processed_dir, f"predictions_*_{_Y0}_{_Y1}.csv")
 HEX_GJ_PATH = os.path.join(settings.processed_dir, "hexes.geojson")
 MODZCTA_PATH = os.path.join(settings.external_dir, "modzcta.geojson")
 
@@ -26,7 +28,13 @@ MODEL_LABELS = {
 
 logger = get_logger()
 
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LITERA])
+app = dash.Dash(
+    __name__,
+    external_stylesheets=[dbc.themes.LITERA],
+    assets_folder=os.path.join(os.path.dirname(__file__), "assets"),
+    assets_url_path="/assets",
+    title="The Future of the Unhoused",
+)
 server = app.server
 
 
@@ -64,7 +72,6 @@ def _build_zip_assets():
         })
         rep_point = poly.representative_point()
         centroids[zip_code] = {"lat": rep_point.y, "lon": rep_point.x}
-
     if not geoms:
         logger.warning("Loaded MODZCTA boundaries but none were usable; tooltips will omit ZIP codes.")
         return None, {}
@@ -104,7 +111,7 @@ def _zip_focus_view_state(value: str | None) -> dict | None:
     return {
         "latitude": centroid["lat"],
         "longitude": centroid["lon"],
-        "zoom": 12,
+        "zoom": 13.5,
         "pitch": 0,
         "bearing": 0,
         "transitionDuration": 600,
@@ -178,9 +185,9 @@ def _discover_prediction_files():
         files["lgbm"] = PRED_BASE
     for path in glob.glob(PRED_PATTERN):
         name = os.path.basename(path)
-        if not name.startswith("predictions_") or not name.endswith("_2026_2029.csv"):
+        if not name.startswith("predictions_") or not name.endswith(f"_{_Y0}_{_Y1}.csv"):
             continue
-        suffix = name[len("predictions_"):-len("_2026_2029.csv")]
+        suffix = name[len("predictions_"):-len(f"_{_Y0}_{_Y1}.csv")]
         if not suffix:
             continue
         key = suffix.lower()
@@ -254,8 +261,7 @@ def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred", focus_v
     return spec
 
 
-ANALYSIS_COPY = html.Div(className="card", children=[
-    html.H5("What data feeds this map right now?"),
+ANALYSIS_COPY = html.Div(className="fhf-prose", children=[
     html.P("This deployment includes the freshest datasets we finished ingesting on December 7, 2025:"),
     html.Ul([
         html.Li("data/raw/311.json — service requests already geocoded to lat/lon."),
@@ -264,26 +270,63 @@ ANALYSIS_COPY = html.Div(className="card", children=[
         html.Li("data/processed/hexes.geojson — the NYC H3 grid we render and join against."),
         html.Li("data/processed/predictions_<model>_2026_2029.csv — per-model outputs with conformal lower/upper bands and per-year percentile scaling."),
     ]),
-    html.H6("Pipeline checkpoints"),
+    html.H6("Pipeline checkpoints", className="fhf-section-title"),
     html.P([
         html.B("Ingestion · "),
         "scripts/bootstrap_data.py grabs 311, eviction, and MODZCTA samples, then scripts/aggregate_hpd_complaints.py streams the large HPD CSV into the lightweight hex counts listed above.",
     ]),
     html.P([
         html.B("Feature engineering · "),
-        "src/data/features.py reads the aggregated HPD counts plus 311/eviction events and DCP housing program data, maps everything to the hex grid, and clones the table for each forecast year with a modest 3% growth proxy (*_y columns). When the training target is homeless-related 311, those specific homeless-related complaint types are excluded from the 311 feature signal to avoid leakage.",
+        "src/data/features.py reads the aggregated HPD counts plus 311/eviction events and DCP housing program data, maps everything to the hex grid, and clones the table for each forecast year with a modest 3% growth proxy (*_y columns).",
     ]),
     html.P([
         html.B("Model + bands · "),
-        "src/models/baselines.py fits your selected model on nine engineered signals (n311_y, nhpd_y, nevict_y, nfiled_y, n_dcp_units, n_dcp_aff_units, n_dcp_expiring5yr, n_dcp_expired, dcp_status_median) to predict next-year homeless-related 311 request volume (" 
-        "Homeless Person Assistance" 
-        "+ Homeless Encampment) at the hex level. src/models/evaluate.py wraps predictions with symmetric conformal intervals so each hex gets pred, lo, and hi.",
+        "src/models/baselines.py fits your selected model on nine engineered signals (n311_y, nhpd_y, nevict_y, nfiled_y, n_dcp_units, n_dcp_aff_units, n_dcp_expiring5yr, n_dcp_expired, dcp_status_median), while src/models/evaluate.py wraps the predictions with symmetric conformal intervals so each hex gets pred, lo, and hi.",
+    ]),
+    html.H6("What those column names mean (plain English)", className="fhf-section-title"),
+    html.Ul([
+        html.Li([
+            html.Code("n311_y"),
+            " — How many relevant 311 service requests came from that area for that year (from NYC 311 open data).",
+        ]),
+        html.Li([
+            html.Code("nhpd_y"),
+            " — How many HPD housing complaints were counted in that area (from HPD Complaint Problems data).",
+        ]),
+        html.Li([
+            html.Code("nevict_y"),
+            " — How many executed evictions were recorded there (from NYC Residential Evictions).",
+        ]),
+        html.Li([
+            html.Code("nfiled_y"),
+            " — How many eviction cases were filed there, even if not yet executed (from filed-eviction dataset).",
+        ]),
+        html.Li([
+            html.Code("n_dcp_units"),
+            " — Total housing units in DCP-tracked projects in that area (from DCP housing program data).",
+        ]),
+        html.Li([
+            html.Code("n_dcp_aff_units"),
+            " — Affordable units among those DCP-tracked units (same DCP source).",
+        ]),
+        html.Li([
+            html.Code("n_dcp_expiring5yr"),
+            " — Number of DCP-tracked units whose affordability/regulatory status is expected to expire within ~5 years.",
+        ]),
+        html.Li([
+            html.Code("n_dcp_expired"),
+            " — Number of DCP-tracked units whose affordability/regulatory period is already expired.",
+        ]),
+        html.Li([
+            html.Code("dcp_status_median"),
+            " — A median summary score of project status in that area (from DCP status fields, converted to numeric categories).",
+        ]),
     ]),
     html.P([
         html.B("Interpreting the color · "),
-        "The map colors show a within-year relative score (0–1) for the selected model: 1.0 means \"highest predicted next-year homeless-related 311 activity among hexes in this year\". It is not a probability, and it is not a literal predicted count; pred/lo/hi are percentile-scaled for visual comparability.",
+        "Scores are normalized between 0 and 1 inside each year for the selected model, so 1.0 means \"highest relative risk across hexes this year for this model\" rather than a literal count of future shelter placements.",
     ]),
-    html.H6("Source links"),
+    html.H6("Source links", className="fhf-section-title"),
     html.Ul([
         html.Li(html.A("NYC 311 Service Requests", href="https://data.cityofnewyork.us/Social-Services/311-Service-Requests-from-2010-to-Present/erm2-nwe9", target="_blank")),
         html.Li(html.A("HPD Complaint Problems", href="https://data.cityofnewyork.us/Housing-Development/HPD-Complaint-Problems/uwyv-629c", target="_blank")),
@@ -297,8 +340,8 @@ ANALYSIS_COPY = html.Div(className="card", children=[
 
 
 MODEL_COPY = {
-    "lgbm": html.Div(className="card", children=[
-        html.H5("LightGBM in plain English"),
+    "lgbm": html.Div(className="fhf-prose", children=[
+        html.P("LightGBM = gradient boosting (leaf-wise trees)."),
         html.Img(src="/assets/model_diagram_lgbm.svg?v=4", className="model-diagram", alt="LightGBM diagram"),
         html.Div("Diagram: boosting adds trees sequentially; LightGBM often grows leaf-wise.", className="model-diagram-note"),
         html.P("Light Gradient Boosting uses hundreds of tiny decision trees trained sequentially; each tree focuses on the residual mistakes of prior trees."),
@@ -308,8 +351,8 @@ MODEL_COPY = {
             html.Li("Conformal bands add a give-or-take range without extra retraining."),
         ]),
     ]),
-    "xgb": html.Div(className="card", children=[
-        html.H5("XGBoost at a glance"),
+    "xgb": html.Div(className="fhf-prose", children=[
+        html.P("XGBoost = gradient boosting (level-wise trees)."),
         html.Img(src="/assets/model_diagram_xgb.svg?v=4", className="model-diagram", alt="XGBoost diagram"),
         html.Div("Diagram: each tree is an incremental correction to the score.", className="model-diagram-note"),
         html.P("Another gradient-boosted tree ensemble; uses histogram splits for speed and strong performance on tabular problems."),
@@ -319,8 +362,8 @@ MODEL_COPY = {
             html.Li("Choose this to test a stronger regularized boosting baseline."),
         ]),
     ]),
-    "rf": html.Div(className="card", children=[
-        html.H5("Random Forest basics"),
+    "rf": html.Div(className="fhf-prose", children=[
+        html.P("Random Forest = many trees voting/averaging."),
         html.Img(src="/assets/model_diagram_rf.svg?v=4", className="model-diagram", alt="Random Forest diagram"),
         html.Div("Diagram: many independent trees vote/average into one prediction.", className="model-diagram-note"),
         html.P("Hundreds of decorrelated decision trees averaged together; great for quick baselines and uncertainty intuition."),
@@ -337,54 +380,175 @@ def model_copy_component(model_key: str):
     return MODEL_COPY.get(model_key, MODEL_COPY.get(DEFAULT_MODEL))
 
 
+ALL_MODEL_COPY = html.Div(children=[
+    html.H6("LightGBM", className="fhf-section-title mt-1"),
+    MODEL_COPY["lgbm"],
+    html.Hr(className="my-3"),
+    html.H6("Random Forest", className="fhf-section-title"),
+    MODEL_COPY["rf"],
+    html.Hr(className="my-3"),
+    html.H6("XGBoost", className="fhf-section-title"),
+    MODEL_COPY["xgb"],
+])
+
+
 app.layout = dbc.Container([
-    html.H3("The Future of the Unhoused — NYC Forecast Map (2026–2029)"),
-    html.Div(className="small", children=[
-        "Zoomable choropleth by H3 hex; hover for values. ",
-        "Color encodes predicted relative risk (0–1).",
+    dcc.Location(id="app-location", refresh=False),
+
+    dbc.Row([
+        dbc.Col(
+            html.Div(className="fhf-hero", children=[
+                html.H2("The Future of the Unhoused", className="fhf-hero-title mb-0"),
+                html.Div("NYC Forecast Map (2026–2029)", className="fhf-kicker"),
+                html.Div(className="fhf-badges mt-3", children=[
+                    dbc.Badge("Relative score (0–1)", color="primary", className="me-2", pill=True),
+                    dbc.Badge("Not a probability", color="secondary", className="me-2", pill=True),
+                    dbc.Badge("Data ingested: Dec 7, 2025", color="light", text_color="dark", pill=True),
+                ]),
+                html.Div(className="mt-3 fhf-links", children=[
+                    html.Span("Links: ", className="fhf-muted"),
+                    html.A("Sources", id="link-sources", href="#sources", className="me-3"),
+                    html.A("Method", id="link-method", href="#method", className="me-3"),
+                    html.A("Limitations", id="link-limits", href="#limits"),
+                ]),
+            ]),
+            md=12,
+        ),
+    ], className="mt-3 mb-3"),
+
+    dbc.Card(className="fhf-card fhf-controls mb-3", children=[
+        dbc.CardBody(className="fhf-card-body", children=[
+            html.H5("Controls", className="fhf-section-title mb-3"),
+            dbc.Row([
+                dbc.Col([
+                    dbc.Label("Jump to ZIP", html_for="zip-input", className="fhf-muted mb-1"),
+                    dbc.InputGroup([
+                        dbc.Input(
+                            id="zip-input",
+                            type="text",
+                            placeholder="Enter NYC ZIP (e.g., 10027)",
+                            debounce=False,
+                            maxLength=10,
+                            inputMode="numeric",
+                            autoComplete="postal-code",
+                        ),
+                        dbc.Button("Go", id="zip-submit", n_clicks=0, color="primary", outline=False),
+                    ]),
+                    html.Div("Tip: press Enter or click Go.", className="fhf-muted mt-1"),
+                ], md=5),
+
+                dbc.Col([
+                    dbc.Label("Metric", html_for="metric", className="fhf-muted mb-1"),
+                    dbc.Select(
+                        id="metric",
+                        value="pred",
+                        options=[
+                            {"label": "Prediction (μ)", "value": "pred"},
+                            {"label": "Lower band (lo)", "value": "lo"},
+                            {"label": "Upper band (hi)", "value": "hi"},
+                        ],
+                    ),
+                ], md=3),
+
+                dbc.Col([
+                    dbc.Label("Model", html_for="model", className="fhf-muted mb-1"),
+                    dbc.Select(
+                        id="model",
+                        value=DEFAULT_MODEL,
+                        options=MODEL_OPTIONS,
+                    ),
+                ], md=4),
+            ], className="g-3"),
+
+            html.Hr(className="my-3"),
+
+            dbc.Row([
+                dbc.Col([
+                    dbc.Label("Year", html_for="year", className="fhf-muted mb-1"),
+                    dcc.Slider(
+                        id="year",
+                        min=2026,
+                        max=2029,
+                        value=2026,
+                        step=1,
+                        marks={y: str(y) for y in [2026, 2027, 2028, 2029]},
+                    ),
+                ], md=12),
+            ]),
+        ]),
     ]),
-    dbc.Row([
-        dbc.Col(dbc.InputGroup([
-            dbc.Input(
-                id="zip-input",
-                type="text",
-                placeholder="Enter NYC ZIP (e.g., 10027)",
-                debounce=False,
-                maxLength=10,
-                inputMode="numeric",
-                autoComplete="postal-code",
-            ),
-            dbc.Button("Go", id="zip-submit", n_clicks=0, color="primary", outline=False),
-        ]), md=5),
-        dbc.Col(html.Small("Type a valid NYC ZIP then hit Enter or Go to fly to that area."), md=7),
-    ], align="center", className="card"),
-    dbc.Row([
-        dbc.Col(dcc.Slider(id="year", min=2026, max=2029, value=2026, step=1,
-                           marks={y: str(y) for y in [2026, 2027, 2028, 2029]}), md=6),
-        dbc.Col(dbc.Select(
-            id="metric",
-            value="pred",
-            options=[
-                {"label": "Prediction (μ)", "value": "pred"},
-                {"label": "Lower band (lo)", "value": "lo"},
-                {"label": "Upper band (hi)", "value": "hi"},
-            ],
-        ), md=3),
-        dbc.Col(dbc.Select(
-            id="model",
-            value=DEFAULT_MODEL,
-            options=MODEL_OPTIONS,
-        ), md=3),
-    ], align="center", className="card"),
-    html.Div(id="deck-container"),
-    html.Div(id="model-copy", children=model_copy_component(DEFAULT_MODEL)),
-    ANALYSIS_COPY,
-], fluid=True)
+
+    html.Div(className="fhf-map-caption mb-2", children=[
+        html.Span("Map layer", className="fhf-map-caption-label"),
+        html.Span("Relative risk by H3 hex, filterable by model/year/metric.", className="fhf-map-caption-copy"),
+    ]),
+
+    html.Div(id="deck-container", className="fhf-map-shell mb-3"),
+
+    dbc.Accordion(id="info-accordion", className="mb-4", always_open=False, start_collapsed=True, children=[
+        dbc.AccordionItem(
+            item_id="read-map",
+            title="How to read this map",
+            children=html.Div(className="fhf-prose", children=[
+                html.P([
+                    "The colors show a ",
+                    html.B("relative risk score"),
+                    " (0-1) for the selected model and year. This is a ranking scale: darker hexes are expected to be higher than lighter hexes ",
+                    "compared with other hexes in the same year.",
+                ]),
+                html.P([
+                    html.B("Why this is not a probability: "),
+                    "a probability answers \"what is the chance this event happens here\" (for example, 70%). ",
+                    "This map does not estimate that kind of chance. Instead, it rescales model outputs so the highest area in that year is near ",
+                    html.B("1.0"),
+                    " and lower-ranked areas are closer to ",
+                    html.B("0.0"),
+                    ".",
+                ]),
+                html.P([
+                    html.B("So what does 1.0 mean? "),
+                    "It means \"highest relative predicted risk in that year for this model\" - not \"100% chance\" and not \"one full event\".",
+                ]),
+                html.Ul([
+                    html.Li("Treat the map as a hotspot ranking tool, not an absolute forecast of probability."),
+                    html.Li("Use Metric to view prediction (μ) or uncertainty bands (lo/hi)."),
+                    html.Li("Hover a hex for the value and year; ZIP is approximate."),
+                ]),
+            ]),
+        ),
+        dbc.AccordionItem(
+            item_id="method",
+            title="Model in plain English",
+            children=html.Div(id="method", children=[
+                html.Div(id="model-copy", children=ALL_MODEL_COPY),
+            ]),
+        ),
+        dbc.AccordionItem(
+            item_id="sources",
+            title="What data feeds this right now?",
+            children=html.Div(id="sources", children=[
+                ANALYSIS_COPY,
+            ]),
+        ),
+        dbc.AccordionItem(
+            item_id="limits",
+            title="Limitations & ethics",
+            children=html.Div(id="limits", className="fhf-prose", children=[
+                html.P("This is an exploratory, equity-sensitive visualization intended for discussion and learning."),
+                html.Ul([
+                    html.Li("Risk scores can be affected by reporting behavior (who files complaints/311), not only underlying need."),
+                    html.Li("Spatial aggregation (H3) smooths local variation; do not interpret a single hex as a definitive hotspot."),
+                    html.Li("Use this to prioritize questions and outreach, not to target enforcement or penalize communities."),
+                    html.Li("Always pair model outputs with lived experience, service provider context, and qualitative evidence."),
+                ]),
+            ]),
+        ),
+    ]),
+], fluid=True, className="fhf-page px-3 px-md-4 pb-4")
 
 
 @app.callback(
     Output("deck-container", "children"),
-    Output("model-copy", "children"),
     Input("model", "value"),
     Input("year", "value"),
     Input("metric", "value"),
@@ -499,4 +663,17 @@ def update_map(model_key, year, metric, zip_clicks, zip_enter, zip_value):  # pr
     """
     iframe_html = iframe_template.replace("__DECK_SPEC__", json_spec)
     iframe = html.Iframe(srcDoc=iframe_html, style={"width": "100%", "height": "720px", "border": "none"})
-    return iframe, model_copy_component(model)
+    return iframe
+
+
+@app.callback(
+    Output("info-accordion", "active_item"),
+    Input("app-location", "hash"),
+)
+def open_section_from_hash(hash_value):
+    mapping = {
+        "#method": "method",
+        "#sources": "sources",
+        "#limits": "limits",
+    }
+    return mapping.get(hash_value)

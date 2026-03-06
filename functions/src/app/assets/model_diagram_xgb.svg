@@ -60,14 +60,12 @@
   <use href="#tree" xlink:href="#tree" x="350" y="66" width="260" height="190" />
   <use href="#tree" xlink:href="#tree" x="660" y="66" width="260" height="190" />
 
-  <!-- arrows showing sequential addition -->
   <path class="arrow" d="M310 168 C330 168, 330 168, 350 168" />
   <path class="arrow" d="M620 168 C640 168, 640 168, 660 168" />
 
   <text class="s" x="330" y="152" text-anchor="middle">+ correction</text>
   <text class="s" x="640" y="152" text-anchor="middle">+ correction</text>
 
-  <!-- final output -->
   <line class="edge" x1="790" y1="252" x2="820" y2="268" />
   <circle class="out" cx="840" cy="276" r="10" />
   <text class="s" x="858" y="280">Final score</text>

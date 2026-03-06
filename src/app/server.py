@@ -28,7 +28,13 @@ MODEL_LABELS = {
 
 logger = get_logger()
 
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LITERA, "/assets/styles.css"])
+app = dash.Dash(
+    __name__,
+    external_stylesheets=[dbc.themes.LITERA],
+    assets_folder=os.path.join(os.path.dirname(__file__), "assets"),
+    assets_url_path="/assets",
+    title="The Future of the Unhoused",
+)
 server = app.server
 
 
@@ -105,7 +111,7 @@ def _zip_focus_view_state(value: str | None) -> dict | None:
     return {
         "latitude": centroid["lat"],
         "longitude": centroid["lon"],
-        "zoom": 12,
+        "zoom": 13.5,
         "pitch": 0,
         "bearing": 0,
         "transitionDuration": 600,
@@ -277,6 +283,45 @@ ANALYSIS_COPY = html.Div(className="fhf-prose", children=[
         html.B("Model + bands · "),
         "src/models/baselines.py fits your selected model on nine engineered signals (n311_y, nhpd_y, nevict_y, nfiled_y, n_dcp_units, n_dcp_aff_units, n_dcp_expiring5yr, n_dcp_expired, dcp_status_median), while src/models/evaluate.py wraps the predictions with symmetric conformal intervals so each hex gets pred, lo, and hi.",
     ]),
+    html.H6("What those column names mean (plain English)", className="fhf-section-title"),
+    html.Ul([
+        html.Li([
+            html.Code("n311_y"),
+            " — How many relevant 311 service requests came from that area for that year (from NYC 311 open data).",
+        ]),
+        html.Li([
+            html.Code("nhpd_y"),
+            " — How many HPD housing complaints were counted in that area (from HPD Complaint Problems data).",
+        ]),
+        html.Li([
+            html.Code("nevict_y"),
+            " — How many executed evictions were recorded there (from NYC Residential Evictions).",
+        ]),
+        html.Li([
+            html.Code("nfiled_y"),
+            " — How many eviction cases were filed there, even if not yet executed (from filed-eviction dataset).",
+        ]),
+        html.Li([
+            html.Code("n_dcp_units"),
+            " — Total housing units in DCP-tracked projects in that area (from DCP housing program data).",
+        ]),
+        html.Li([
+            html.Code("n_dcp_aff_units"),
+            " — Affordable units among those DCP-tracked units (same DCP source).",
+        ]),
+        html.Li([
+            html.Code("n_dcp_expiring5yr"),
+            " — Number of DCP-tracked units whose affordability/regulatory status is expected to expire within ~5 years.",
+        ]),
+        html.Li([
+            html.Code("n_dcp_expired"),
+            " — Number of DCP-tracked units whose affordability/regulatory period is already expired.",
+        ]),
+        html.Li([
+            html.Code("dcp_status_median"),
+            " — A median summary score of project status in that area (from DCP status fields, converted to numeric categories).",
+        ]),
+    ]),
     html.P([
         html.B("Interpreting the color · "),
         "Scores are normalized between 0 and 1 inside each year for the selected model, so 1.0 means \"highest relative risk across hexes this year for this model\" rather than a literal count of future shelter placements.",
@@ -335,32 +380,43 @@ def model_copy_component(model_key: str):
     return MODEL_COPY.get(model_key, MODEL_COPY.get(DEFAULT_MODEL))
 
 
+ALL_MODEL_COPY = html.Div(children=[
+    html.H6("LightGBM", className="fhf-section-title mt-1"),
+    MODEL_COPY["lgbm"],
+    html.Hr(className="my-3"),
+    html.H6("Random Forest", className="fhf-section-title"),
+    MODEL_COPY["rf"],
+    html.Hr(className="my-3"),
+    html.H6("XGBoost", className="fhf-section-title"),
+    MODEL_COPY["xgb"],
+])
+
+
 app.layout = dbc.Container([
+    dcc.Location(id="app-location", refresh=False),
+
     dbc.Row([
         dbc.Col(
             html.Div(className="fhf-hero", children=[
-                html.H2("The Future of the Unhoused", className="mb-0"),
-                html.Div("NYC Forecast Map (2026–2029)", className="fhf-muted"),
-                html.Div(className="fhf-muted", children=[
-                    "Open Data Week NYC · School of Data — exploratory forecast for discussion and learning.",
-                ]),
-                html.Div(className="mt-2", children=[
+                html.H2("The Future of the Unhoused", className="fhf-hero-title mb-0"),
+                html.Div("NYC Forecast Map (2026–2029)", className="fhf-kicker"),
+                html.Div(className="fhf-badges mt-3", children=[
                     dbc.Badge("Relative score (0–1)", color="primary", className="me-2", pill=True),
                     dbc.Badge("Not a probability", color="secondary", className="me-2", pill=True),
                     dbc.Badge("Data ingested: Dec 7, 2025", color="light", text_color="dark", pill=True),
                 ]),
-                html.Div(className="mt-2", children=[
+                html.Div(className="mt-3 fhf-links", children=[
                     html.Span("Links: ", className="fhf-muted"),
-                    html.A("Sources", href="#sources", className="me-3"),
-                    html.A("Method", href="#method", className="me-3"),
-                    html.A("Limitations", href="#limits"),
+                    html.A("Sources", id="link-sources", href="#sources", className="me-3"),
+                    html.A("Method", id="link-method", href="#method", className="me-3"),
+                    html.A("Limitations", id="link-limits", href="#limits"),
                 ]),
             ]),
             md=12,
         ),
     ], className="mt-3 mb-3"),
 
-    dbc.Card(className="fhf-card mb-3", children=[
+    dbc.Card(className="fhf-card fhf-controls mb-3", children=[
         dbc.CardBody(className="fhf-card-body", children=[
             html.H5("Controls", className="fhf-section-title mb-3"),
             dbc.Row([
@@ -422,37 +478,60 @@ app.layout = dbc.Container([
         ]),
     ]),
 
+    html.Div(className="fhf-map-caption mb-2", children=[
+        html.Span("Map layer", className="fhf-map-caption-label"),
+        html.Span("Relative risk by H3 hex, filterable by model/year/metric.", className="fhf-map-caption-copy"),
+    ]),
+
     html.Div(id="deck-container", className="fhf-map-shell mb-3"),
 
-    dbc.Accordion(className="mb-4", always_open=False, start_collapsed=True, children=[
+    dbc.Accordion(id="info-accordion", className="mb-4", always_open=False, start_collapsed=True, children=[
         dbc.AccordionItem(
+            item_id="read-map",
             title="How to read this map",
             children=html.Div(className="fhf-prose", children=[
                 html.P([
-                    "The colors show a within-year relative score (0–1) for the selected model. ",
+                    "The colors show a ",
+                    html.B("relative risk score"),
+                    " (0-1) for the selected model and year. This is a ranking scale: darker hexes are expected to be higher than lighter hexes ",
+                    "compared with other hexes in the same year.",
+                ]),
+                html.P([
+                    html.B("Why this is not a probability: "),
+                    "a probability answers \"what is the chance this event happens here\" (for example, 70%). ",
+                    "This map does not estimate that kind of chance. Instead, it rescales model outputs so the highest area in that year is near ",
                     html.B("1.0"),
-                    " means the highest predicted relative risk among hexes in that year for that model.",
+                    " and lower-ranked areas are closer to ",
+                    html.B("0.0"),
+                    ".",
+                ]),
+                html.P([
+                    html.B("So what does 1.0 mean? "),
+                    "It means \"highest relative predicted risk in that year for this model\" - not \"100% chance\" and not \"one full event\".",
                 ]),
                 html.Ul([
-                    html.Li("This is not a probability and not a literal predicted count."),
+                    html.Li("Treat the map as a hotspot ranking tool, not an absolute forecast of probability."),
                     html.Li("Use Metric to view prediction (μ) or uncertainty bands (lo/hi)."),
                     html.Li("Hover a hex for the value and year; ZIP is approximate."),
                 ]),
             ]),
         ),
         dbc.AccordionItem(
+            item_id="method",
             title="Model in plain English",
             children=html.Div(id="method", children=[
-                html.Div(id="model-copy", children=model_copy_component(DEFAULT_MODEL)),
+                html.Div(id="model-copy", children=ALL_MODEL_COPY),
             ]),
         ),
         dbc.AccordionItem(
+            item_id="sources",
             title="What data feeds this right now?",
             children=html.Div(id="sources", children=[
                 ANALYSIS_COPY,
             ]),
         ),
         dbc.AccordionItem(
+            item_id="limits",
             title="Limitations & ethics",
             children=html.Div(id="limits", className="fhf-prose", children=[
                 html.P("This is an exploratory, equity-sensitive visualization intended for discussion and learning."),
@@ -465,12 +544,11 @@ app.layout = dbc.Container([
             ]),
         ),
     ]),
-], fluid=True, className="px-3 px-md-4 pb-4")
+], fluid=True, className="fhf-page px-3 px-md-4 pb-4")
 
 
 @app.callback(
     Output("deck-container", "children"),
-    Output("model-copy", "children"),
     Input("model", "value"),
     Input("year", "value"),
     Input("metric", "value"),
@@ -585,4 +663,17 @@ def update_map(model_key, year, metric, zip_clicks, zip_enter, zip_value):  # pr
     """
     iframe_html = iframe_template.replace("__DECK_SPEC__", json_spec)
     iframe = html.Iframe(srcDoc=iframe_html, style={"width": "100%", "height": "720px", "border": "none"})
-    return iframe, model_copy_component(model)
+    return iframe
+
+
+@app.callback(
+    Output("info-accordion", "active_item"),
+    Input("app-location", "hash"),
+)
+def open_section_from_hash(hash_value):
+    mapping = {
+        "#method": "method",
+        "#sources": "sources",
+        "#limits": "limits",
+    }
+    return mapping.get(hash_value)

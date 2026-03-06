@@ -24,7 +24,6 @@ FEATURE_COLS = [
     "n_dcp_expired",
     "dcp_status_median",
 ]
-TARGET = "risk_proxy"
 
 
 def _train_lgbm(Xtr, ytr):
@@ -69,14 +68,39 @@ TRAINER_REGISTRY = {
 }
 
 
-def train_model(features: pd.DataFrame, model_name: str = "lgbm"):
+def train_model(
+    features: pd.DataFrame,
+    model_name: str = "lgbm",
+    *,
+    target_col: str | None = None,
+    feature_cols: list[str] | None = None,
+):
     name = (model_name or "lgbm").lower()
     if name not in TRAINER_REGISTRY:
         raise ValueError(f"Unsupported model '{model_name}'. Choose one of: {', '.join(TRAINER_REGISTRY.keys())}.")
 
     df = features.copy()
-    X = df[FEATURE_COLS]
-    y = df[TARGET]
+    feature_cols = feature_cols or FEATURE_COLS
+    target_col = (target_col or settings.model_target or "risk_proxy").strip() or "risk_proxy"
+    missing = [c for c in [*feature_cols, target_col] if c not in df.columns]
+    if missing:
+        raise ValueError(
+            "Training table missing required columns: "
+            + ", ".join(missing)
+            + f". Present columns: {', '.join(df.columns)}"
+        )
+
+    train_df = df.dropna(subset=[target_col]).copy()
+    if settings.train_years:
+        train_df = train_df[train_df["year"].isin(settings.train_years)].copy()
+    if train_df.empty:
+        raise ValueError(
+            f"No training rows available after filtering for target '{target_col}'. "
+            "Provide OUTCOMES_PATH (or include the target in the features table) and/or adjust TRAIN_YEARS."
+        )
+
+    X = train_df[feature_cols]
+    y = train_df[target_col]
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=settings.random_seed)
 
     trainer = TRAINER_REGISTRY[name]

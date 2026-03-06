@@ -9,9 +9,7 @@
       .dash { stroke: #9ca3af; stroke-width: 6; stroke-linecap: round; }
     </style>
 
-    <!-- A simple balanced decision tree icon (symbol) -->
     <symbol id="tree" viewBox="0 0 260 190">
-      <!-- edges -->
       <line class="edge" x1="130" y1="28" x2="70" y2="72" />
       <line class="edge" x1="130" y1="28" x2="190" y2="72" />
 
@@ -33,7 +31,6 @@
       <line class="edge" x1="222" y1="120" x2="206" y2="162" />
       <line class="edge" x1="222" y1="120" x2="238" y2="162" />
 
-      <!-- nodes -->
       <circle class="node" cx="130" cy="28" r="18" />
       <circle class="node" cx="70" cy="72" r="18" />
       <circle class="node" cx="190" cy="72" r="18" />
@@ -57,18 +54,14 @@
   <text class="t" x="480" y="36" text-anchor="middle">Random Forest = many trees in parallel</text>
   <text class="s" x="480" y="60" text-anchor="middle">Each tree votes; we average the votes</text>
 
-  <!-- tree labels -->
-  <!-- trees -->
   <use href="#tree" xlink:href="#tree" x="40" y="66" width="260" height="190" />
   <use href="#tree" xlink:href="#tree" x="350" y="66" width="260" height="190" />
   <use href="#tree" xlink:href="#tree" x="660" y="66" width="260" height="190" />
 
-  <!-- ellipsis -->
   <circle class="node" cx="640" cy="178" r="6" />
   <circle class="node" cx="640" cy="200" r="6" />
   <circle class="node" cx="640" cy="222" r="6" />
 
-  <!-- aggregation output -->
   <line class="dash" x1="170" y1="252" x2="480" y2="252" />
   <line class="dash" x1="480" y1="252" x2="790" y2="252" />
 

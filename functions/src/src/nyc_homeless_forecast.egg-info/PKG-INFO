@@ -1,6 +1,0 @@
-Metadata-Version: 2.4
-Name: nyc-homeless-forecast
-Version: 0.1.0
-Summary: Spatiotemporal forecasts and Dash map for NYC homelessness risk
-Author: Rohan Ramnarain
-Requires-Python: >=3.10

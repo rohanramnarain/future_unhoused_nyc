@@ -1,6 +1,21 @@
 # src/config.py
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+def _parse_int_list(raw: str | None, default: list[int]) -> list[int]:
+    if raw is None:
+        return default
+    raw = str(raw).strip()
+    if not raw:
+        return default
+    out: list[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        out.append(int(part))
+    return out
 
 try:
     from dotenv import load_dotenv
@@ -44,6 +59,24 @@ class Settings:
 
     random_seed: int = int(os.getenv("RANDOM_SEED", "42"))
     advanced_model: bool = bool(int(os.getenv("ADVANCED_MODEL", "0")))
+
+    # Modeling configuration
+    # MODEL_TARGET should be a column present in the features table.
+    # Default stays on the demo target to preserve backward compatibility.
+    model_target: str = os.getenv("MODEL_TARGET", "risk_proxy")
+
+    # Optional (for "real" training): a table keyed by (hex, year) containing the target.
+    # The target column name defaults to MODEL_TARGET unless OUTCOMES_VALUE_COL is set.
+    outcomes_path: str = os.getenv("OUTCOMES_PATH", "")
+    outcomes_hex_col: str = os.getenv("OUTCOMES_HEX_COL", "hex")
+    outcomes_year_col: str = os.getenv("OUTCOMES_YEAR_COL", "year")
+    outcomes_value_col: str = os.getenv("OUTCOMES_VALUE_COL", "")
+
+    # Year ranges
+    # TRAIN_YEARS is optional; if omitted, we train on rows where the target is non-null.
+    train_years: list[int] = field(default_factory=lambda: _parse_int_list(os.getenv("TRAIN_YEARS"), []))
+    # PREDICT_YEARS controls what years are written to predictions CSVs and shown in the app.
+    predict_years: list[int] = field(default_factory=lambda: _parse_int_list(os.getenv("PREDICT_YEARS"), [2026, 2027, 2028, 2029]))
 
     app_port: int = int(os.getenv("APP_PORT", "8050"))
     app_host: str = os.getenv("APP_HOST", "127.0.0.1")
