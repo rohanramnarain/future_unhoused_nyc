@@ -262,26 +262,23 @@ def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred", focus_v
 
 
 ANALYSIS_COPY = html.Div(className="fhf-prose", children=[
-    html.P("This deployment includes the freshest datasets we finished ingesting on December 7, 2025:"),
+    html.H6("Acronym dictionary (used below)", className="fhf-section-title"),
     html.Ul([
-        html.Li("data/raw/311.json — service requests already geocoded to lat/lon."),
-        html.Li("data/interim/hpd_hex_counts.json — ≈6k pre-aggregated HPD complaint totals per H3 hex, produced by scripts/aggregate_hpd_complaints.py."),
-        html.Li("data/raw/evictions.json and data/raw/filed_evictions.json — executed and filed eviction events for nevict/nfiled."),
-        html.Li("data/processed/hexes.geojson — the NYC H3 grid we render and join against."),
-        html.Li("data/processed/predictions_<model>_2026_2029.csv — per-model outputs with conformal lower/upper bands and per-year percentile scaling."),
+        html.Li([html.B("NYC"), " — New York City."]),
+        html.Li([html.B("311"), " — NYC's non-emergency service request system."]),
+        html.Li([html.B("HPD"), " — NYC Department of Housing Preservation and Development."]),
+        html.Li([html.B("DCP"), " — NYC Department of City Planning."]),
+        html.Li([html.B("H3"), " — Uber's hexagonal geospatial indexing system used to divide the map into hexes."]),
+        html.Li([html.B("MODZCTA"), " — Modified ZIP Code Tabulation Area (NYC's ZIP-like boundary geography)."]),
+        html.Li([html.B("ACS"), " — American Community Survey (U.S. Census program)."]),
+        html.Li([html.B("CSV"), " — Comma-Separated Values file format."]),
+        html.Li([html.B("JSON"), " — JavaScript Object Notation file format."]),
+        html.Li([html.B("ZIP"), " — Postal ZIP code area (approximate here when mapped to hexes)."]),
     ]),
-    html.H6("Pipeline checkpoints", className="fhf-section-title"),
-    html.P([
-        html.B("Ingestion · "),
-        "scripts/bootstrap_data.py grabs 311, eviction, and MODZCTA samples, then scripts/aggregate_hpd_complaints.py streams the large HPD CSV into the lightweight hex counts listed above.",
-    ]),
-    html.P([
-        html.B("Feature engineering · "),
-        "src/data/features.py reads the aggregated HPD counts plus 311/eviction events and DCP housing program data, maps everything to the hex grid, and clones the table for each forecast year with a modest 3% growth proxy (*_y columns).",
-    ]),
-    html.P([
-        html.B("Model + bands · "),
-        "src/models/baselines.py fits your selected model on nine engineered signals (n311_y, nhpd_y, nevict_y, nfiled_y, n_dcp_units, n_dcp_aff_units, n_dcp_expiring5yr, n_dcp_expired, dcp_status_median), while src/models/evaluate.py wraps the predictions with symmetric conformal intervals so each hex gets pred, lo, and hi.",
+    html.H6("What are we predicting, exactly?", className="fhf-section-title"),
+    html.Ul([
+        html.Li("Target column: the model predicts a single outcome column for each hex-year (configured as MODEL_TARGET in the pipeline). In this deployment, that outcome is next-year homeless-related 311 activity at the hex level."),
+        html.Li("How this becomes relative risk: the model first outputs raw predicted levels, then src/models/evaluate.py rescales those values within each year into percentile-style ranks on a 0-1 scale (shown as pred). Higher rank = relatively higher predicted risk versus other hexes that year."),
     ]),
     html.H6("What those column names mean (plain English)", className="fhf-section-title"),
     html.Ul([
@@ -334,6 +331,31 @@ ANALYSIS_COPY = html.Div(className="fhf-prose", children=[
         html.Li(html.A("MODZCTA Boundaries", href="https://data.cityofnewyork.us/City-Government/Modified-Zip-Code-Tabulation-Areas-MODZCTA-/pri4-ifjk", target="_blank")),
         html.Li(html.A("American Community Survey 5-year", href="https://www.census.gov/data/developers/data-sets/acs-5year.html", target="_blank")),
         html.Li(html.A("H3 Index", href="https://h3geo.org/", target="_blank")),
+    ]),
+])
+
+
+TECHNICAL_DETAILS_COPY = html.Div(className="fhf-prose", children=[
+    html.P("This deployment includes the freshest datasets we finished ingesting on December 7, 2025:"),
+    html.Ul([
+        html.Li("data/raw/311.json — service requests already geocoded to lat/lon."),
+        html.Li("data/interim/hpd_hex_counts.json — ≈6k pre-aggregated HPD complaint totals per H3 hex, produced by scripts/aggregate_hpd_complaints.py."),
+        html.Li("data/raw/evictions.json and data/raw/filed_evictions.json — executed and filed eviction events for nevict/nfiled."),
+        html.Li("data/processed/hexes.geojson — the NYC H3 grid we render and join against."),
+        html.Li("data/processed/predictions_<model>_2026_2029.csv — per-model outputs with conformal lower/upper bands and per-year percentile scaling."),
+    ]),
+    html.H6("Pipeline checkpoints", className="fhf-section-title"),
+    html.P([
+        html.B("Ingestion · "),
+        "scripts/bootstrap_data.py grabs 311, eviction, and MODZCTA samples, then scripts/aggregate_hpd_complaints.py streams the large HPD CSV into the lightweight hex counts listed above.",
+    ]),
+    html.P([
+        html.B("Feature engineering · "),
+        "src/data/features.py reads the aggregated HPD counts plus 311/eviction events and DCP housing program data, maps everything to the hex grid, and clones the table for each forecast year with a modest 3% growth proxy (*_y columns).",
+    ]),
+    html.P([
+        html.B("Model + bands · "),
+        "src/models/baselines.py fits your selected model on nine engineered signals (n311_y, nhpd_y, nevict_y, nfiled_y, n_dcp_units, n_dcp_aff_units, n_dcp_expiring5yr, n_dcp_expired, dcp_status_median), while src/models/evaluate.py wraps the predictions with symmetric conformal intervals so each hex gets pred, lo, and hi.",
     ]),
     html.P("Need higher fidelity? Swap the bootstrap inputs for full NYC feeds, rerun scripts/aggregate_hpd_complaints.py and scripts/train_baseline.py, then redeploy."),
 ])
@@ -398,18 +420,18 @@ app.layout = dbc.Container([
     dbc.Row([
         dbc.Col(
             html.Div(className="fhf-hero", children=[
-                html.H2("The Future of the Unhoused", className="fhf-hero-title mb-0"),
-                html.Div("NYC Forecast Map (2026–2029)", className="fhf-kicker"),
+                html.H2("The Future of the Unhoused in NYC (2026 - 2029 Forecast Map)", className="fhf-hero-title mb-0"),
                 html.Div(className="fhf-badges mt-3", children=[
                     dbc.Badge("Relative score (0–1)", color="primary", className="me-2", pill=True),
-                    dbc.Badge("Not a probability", color="secondary", className="me-2", pill=True),
+                    dbc.Badge("It's a percentile, not a probability", color="secondary", className="me-2", pill=True),
                     dbc.Badge("Data ingested: Dec 7, 2025", color="light", text_color="dark", pill=True),
                 ]),
                 html.Div(className="mt-3 fhf-links", children=[
-                    html.Span("Links: ", className="fhf-muted"),
                     html.A("Sources", id="link-sources", href="#sources", className="me-3"),
                     html.A("Method", id="link-method", href="#method", className="me-3"),
-                    html.A("Limitations", id="link-limits", href="#limits"),
+                    html.A("Limitations", id="link-limits", href="#limits", className="me-3"),
+                    html.A("What am I looking at?", id="link-read-map", href="#read-map", className="me-3"),
+                    html.A("For Techies", id="link-technical", href="#technical-details"),
                 ]),
             ]),
             md=12,
@@ -478,11 +500,6 @@ app.layout = dbc.Container([
         ]),
     ]),
 
-    html.Div(className="fhf-map-caption mb-2", children=[
-        html.Span("Map layer", className="fhf-map-caption-label"),
-        html.Span("Relative risk by H3 hex, filterable by model/year/metric.", className="fhf-map-caption-copy"),
-    ]),
-
     html.Div(id="deck-container", className="fhf-map-shell mb-3"),
 
     dbc.Accordion(id="info-accordion", className="mb-4", always_open=False, start_collapsed=True, children=[
@@ -491,10 +508,20 @@ app.layout = dbc.Container([
             title="How to read this map",
             children=html.Div(className="fhf-prose", children=[
                 html.P([
+                    "Algorithms already shape daily life: what we see, what we are sold, how neighborhoods are marketed, and in some cases how housing decisions are priced or prioritized. ",
+                    "Those systems can reinforce inequality. This project tries to flip that logic and use forecasting tools for public good: first identify where homelessness-related pressure is likely to increase, then investigate why, and help target prevention before harm grows.",
+                ]),
+                html.P([
                     "The colors show a ",
                     html.B("relative risk score"),
-                    " (0-1) for the selected model and year. This is a ranking scale: darker hexes are expected to be higher than lighter hexes ",
+                    " (0-1) for the selected model and year, representing the relative risk of increased homelessness pressure in that area. This is a ranking scale: darker hexes are expected to be higher than lighter hexes ",
                     "compared with other hexes in the same year.",
+                ]),
+                html.P([
+                    html.B("Percentiles, not percentages: "),
+                    "these values are percentile-style ranks on a 0-1 scale. For example, ",
+                    html.B("0.80"),
+                    " means a hex is ranked higher than most others that year, not \"80% chance\" of an outcome.",
                 ]),
                 html.P([
                     html.B("Why this is not a probability: "),
@@ -541,6 +568,13 @@ app.layout = dbc.Container([
                     html.Li("Use this to prioritize questions and outreach, not to target enforcement or penalize communities."),
                     html.Li("Always pair model outputs with lived experience, service provider context, and qualitative evidence."),
                 ]),
+            ]),
+        ),
+        dbc.AccordionItem(
+            item_id="technical-details",
+            title="Technical details",
+            children=html.Div(id="technical-details", children=[
+                TECHNICAL_DETAILS_COPY,
             ]),
         ),
     ]),
@@ -672,8 +706,10 @@ def update_map(model_key, year, metric, zip_clicks, zip_enter, zip_value):  # pr
 )
 def open_section_from_hash(hash_value):
     mapping = {
+        "#read-map": "read-map",
         "#method": "method",
         "#sources": "sources",
         "#limits": "limits",
+        "#technical-details": "technical-details",
     }
     return mapping.get(hash_value)

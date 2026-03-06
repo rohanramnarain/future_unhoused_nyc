@@ -92,11 +92,12 @@ a:hover {
 
 .fhf-hero-title {
 	font-family: "Space Grotesk", "Avenir Next Condensed", sans-serif;
-	font-size: clamp(1.85rem, 3vw, 2.9rem);
+	font-size: clamp(1.6rem, 2.25vw, 2.55rem);
 	font-weight: 700;
 	letter-spacing: -0.022em;
-	line-height: 1.05;
-	max-width: 16ch;
+	line-height: 1.1;
+	max-width: 42ch;
+	text-wrap: balance;
 }
 
 .fhf-kicker {

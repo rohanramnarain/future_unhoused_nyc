@@ -1,5 +1,5 @@
 (function () {
-  const HASHES = new Set(["#sources", "#method", "#limits"]);
+  const HASHES = new Set(["#sources", "#method", "#limits", "#read-map", "#technical-details"]);
 
   function scrollAccordionIntoView() {
     const hash = window.location.hash;
