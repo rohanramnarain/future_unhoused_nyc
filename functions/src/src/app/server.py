@@ -705,13 +705,11 @@ app.layout = dbc.Container([
                     html.Li("Always pair model outputs with lived experience, service provider context, and qualitative evidence."),
                 ]),
                 html.H6("Data bias", className="fhf-section-title mt-3"),
-                html.Ul([
-                    html.Li("Selection and reporting bias: 311/complaint-based features are partly a function of trust, language access, digital access, and willingness to report; neighborhoods with lower reporting can look artificially lower-risk even when need is high."),
-                    html.Li("Missingness is likely not at random (MNAR): gaps in filings, geocodes, or complaint records often correlate with administrative capacity and legal precarity, so simple omission can induce systematic underestimation in marginalized areas."),
-                    html.Li("Measurement and construct bias: proxy targets (for example, homelessness-related 311 activity) measure service contact and visibility, not the full latent construct of housing instability or unsheltered need."),
-                    html.Li("Temporal drift and policy endogeneity: relationships learned on prior years can shift after policy changes, outreach campaigns, weather shocks, or enforcement strategy changes, reducing transportability of learned patterns."),
-                    html.Li("Scale and denominator effects: hex-level aggregation can hide within-hex heterogeneity, and raw count features without population-at-risk normalization can over-rank denser areas relative to per-capita burden."),
-                ]),
+                html.P("Data bias can arise through selection and reporting effects because 311 and complaint-based features are partly shaped by trust in institutions, language access, digital access, and willingness to report. As a result, neighborhoods with lower reporting activity can appear artificially lower risk even when underlying need is high."),
+                html.P("Missingness in these data is likely not at random. Gaps in filings, geocodes, or complaint records often track differences in administrative capacity and legal precarity, so simply omitting missing records can systematically underestimate risk in marginalized areas."),
+                html.P("Measurement and construct bias are also important concerns. Proxy targets such as homelessness-related 311 activity capture service contact and public visibility rather than the full underlying construct of housing instability or unsheltered need."),
+                html.P("Temporal drift and policy endogeneity can further weaken model reliability over time. Relationships learned from prior years may shift after policy changes, outreach efforts, weather shocks, or changes in enforcement strategy, which reduces the transportability of learned patterns."),
+                html.P("Scale and denominator effects can distort comparisons across places. Hex-level aggregation may mask important within-hex heterogeneity, and using raw counts without normalizing by population at risk can over-rank denser areas relative to true per-capita burden."),
             ]),
         ),
         dbc.AccordionItem(
