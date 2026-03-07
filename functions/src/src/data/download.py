@@ -1,0 +1,240 @@
+import getpass
+import io
+import json
+import os
+import shutil
+import subprocess
+import time
+from urllib.parse import urlencode, urlparse
+
+import pandas as pd
+import psycopg
+import requests
+
+from ..config import settings
+from ..utils.logging import get_logger
+
+logger = get_logger()
+NYC_OD_BASE = "https://data.cityofnewyork.us/resource"
+
+DATASETS = {
+    "311": ("erm2-nwe9.json", {"$limit": 1500, "$select": "unique_key,created_date,latitude,longitude,complaint_type"}),
+    "evictions": ("6z8x-wfk4.json", {"$limit": 2000}),
+    "filed_evictions": (settings.filed_evictions_dataset, {"$limit": 2000}),
+    "hpd_complaints": ("uwyv-629c.json", {"$limit": 1500}),
+}
+
+HEADERS = {"Accept": "application/json"}
+if settings.socrata_app_token:
+    HEADERS["X-App-Token"] = settings.socrata_app_token
+
+SOCRATA_AUTH = None
+if settings.socrata_username and settings.socrata_password:
+    SOCRATA_AUTH = (settings.socrata_username, settings.socrata_password)
+elif settings.socrata_api_id and settings.socrata_api_secret:
+    SOCRATA_AUTH = (settings.socrata_api_id, settings.socrata_api_secret)
+
+HPD_PLACEHOLDER = [
+    {"complaint_id": "hpd-placeholder-1", "latitude": 40.815, "longitude": -73.941, "borough": "MANHATTAN"},
+    {"complaint_id": "hpd-placeholder-2", "latitude": 40.700, "longitude": -73.920, "borough": "BROOKLYN"},
+    {"complaint_id": "hpd-placeholder-3", "latitude": 40.844, "longitude": -73.864, "borough": "BRONX"},
+    {"complaint_id": "hpd-placeholder-4", "latitude": 40.580, "longitude": -74.150, "borough": "STATEN ISLAND"},
+]
+
+def _url_with_token(endpoint: str, params: dict) -> str:
+    p = dict(params)
+    if settings.socrata_app_token:
+        p["$$app_token"] = settings.socrata_app_token
+    return f"{NYC_OD_BASE}/{endpoint}?{urlencode(p)}"
+
+def _download(endpoint: str, params: dict, out_path: str) -> bool:
+    def attempt(pl):
+        url = _url_with_token(endpoint, pl)
+        logger.info(f"Downloading {url}")
+        r = requests.get(url, headers=HEADERS, timeout=60, auth=SOCRATA_AUTH)
+        if r.status_code == 429:
+            logger.warning("429 Too Many Requests for %s — backing off 2s and retrying once.", endpoint)
+            time.sleep(2)
+            r = requests.get(url, headers=HEADERS, timeout=60, auth=SOCRATA_AUTH)
+        if r.status_code in (403, 429):
+            return r.status_code, None
+        r.raise_for_status()
+        return 200, r.text
+
+    status, body = attempt(params)
+    if status == 403 and "$limit" in params:
+        small = dict(params); small["$limit"] = min(int(params["$limit"]), 500)
+        logger.warning("403 for %s — retrying with smaller $limit=%s", endpoint, small["$limit"])
+        status, body = attempt(small)
+
+    if status != 200 or body is None:
+        logger.warning("Skipping %s due to status %s. Set SOCRATA_APP_TOKEN to avoid rate limits.", endpoint, status)
+        return False
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w") as f:
+        f.write(body)
+    return True
+
+
+def _normalize_zip(value: pd.Series) -> pd.Series:
+    cleaned = value.astype(str).str.extract(r"(\d+)")[0]
+    cleaned = cleaned.fillna(value.astype(str))
+    return cleaned.str.split(".").str[0].str.zfill(5)
+
+
+def _download_filed_evictions_csv(url: str, out_path: str) -> bool:
+    try:
+        logger.info(f"Downloading filed evictions CSV: {url}")
+        r = requests.get(url, timeout=120)
+        r.raise_for_status()
+        df = pd.read_csv(io.BytesIO(r.content))
+    except Exception as exc:
+        logger.warning("Filed evictions download failed: %s", exc)
+        return False
+
+    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+    if "zipcode" in df.columns:
+        df["zipcode"] = _normalize_zip(df["zipcode"])
+    if "nyc_filings" in df.columns:
+        df["nyc_filings"] = pd.to_numeric(df["nyc_filings"], errors="coerce")
+        df = df[df["nyc_filings"].notna()]
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    df.to_json(out_path, orient="records")
+    logger.info("Saved filed evictions sample to %s", out_path)
+    return True
+
+
+def _write_hpd_placeholder(out_path: str):
+    logger.warning("HPD complaints endpoint restricted; writing placeholder sample to %s", out_path)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump(HPD_PLACEHOLDER, f)
+
+def download_small_samples():
+    os.makedirs(settings.raw_dir, exist_ok=True)
+    for name, (endpoint, params) in DATASETS.items():
+        out = os.path.join(settings.raw_dir, f"{name}.json")
+        if name == "filed_evictions" and endpoint.startswith("http"):
+            _download_filed_evictions_csv(endpoint, out)
+        else:
+            ok = _download(endpoint, params, out)
+            if not ok and name == "hpd_complaints":
+                _write_hpd_placeholder(out)
+
+    # Boundary is optional; our code falls back to NYC bbox if 404
+    boundary_url = "https://raw.githubusercontent.com/NYCPlanning/labs-layers/master/layers/city/city.geojson"
+    out = os.path.join(settings.external_dir, "nyc_boundary.geojson")
+    os.makedirs(settings.external_dir, exist_ok=True)
+    try:
+        r = requests.get(boundary_url, timeout=60)
+        r.raise_for_status()
+        with open(out, "wb") as f:
+            f.write(r.content)
+        logger.info("Saved NYC boundary geojson")
+    except Exception as e:
+        logger.warning(f"Boundary download failed (will use bbox fallback): {e}")
+
+    modzcta_url = "https://data.cityofnewyork.us/api/geospatial/pri4-ifjk?method=export&format=GeoJSON"
+    modzcta_path = os.path.join(settings.external_dir, "modzcta.geojson")
+    try:
+        r = requests.get(modzcta_url, timeout=120)
+        r.raise_for_status()
+        with open(modzcta_path, "wb") as f:
+            f.write(r.content)
+        logger.info("Saved MODZCTA boundaries")
+    except Exception as e:
+        logger.warning(f"MODZCTA download failed (ZIP lookups will be skipped): {e}")
+
+
+def download_dcp_housing() -> bool:
+    if not settings.nycdb_database_url:
+        logger.warning("NYCDB_DATABASE_URL not set; skipping DCP Housing download.")
+        return False
+
+    try:
+        params = _parse_db_url(settings.nycdb_database_url)
+    except ValueError as exc:
+        logger.warning("Invalid NYCDB_DATABASE_URL '%s': %s", settings.nycdb_database_url, exc)
+        return False
+
+    cli = settings.nycdb_cli or "nycdb"
+    if shutil.which(cli) is None:
+        logger.warning("nycdb CLI '%s' not found on PATH; skipping DCP Housing download.", cli)
+        return False
+
+    dataset_name = "dcp_housingdb"
+    env = os.environ.copy()
+    if params["password"]:
+        env["PGPASSWORD"] = params["password"]
+
+    def _run(step: str, allow_failure: bool = False) -> bool:
+        cmd = [
+            cli,
+            f"--{step}", dataset_name,
+            "-H", params["host"],
+            "--port", str(params["port"]),
+            "-D", params["database"],
+            "-U", params["user"],
+            "--root-dir", settings.data_dir,
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        if proc.returncode != 0:
+            log_fn = logger.info if allow_failure else logger.warning
+            log_fn(
+                "nycdb %s failed (code %s): %s",
+                step,
+                proc.returncode,
+                proc.stderr.strip() or proc.stdout.strip(),
+            )
+            return allow_failure
+        return True
+
+    logger.info("Running nycdb to refresh %s table (%s)", dataset_name, settings.nycdb_database_url)
+    _run("drop", allow_failure=True)
+
+    zip_path = os.path.join(settings.data_dir, f"{dataset_name}.zip")
+    if os.path.exists(zip_path):
+        try:
+            os.remove(zip_path)
+        except OSError as exc:
+            logger.info("Unable to remove cached %s: %s", zip_path, exc)
+
+    if not _run("download"):
+        return False
+    if not _run("load"):
+        return False
+
+    out_path = os.path.join(settings.raw_dir, "dcp_housing.csv")
+    query = f"SELECT * FROM {dataset_name}"
+    if settings.dcp_housing_limit:
+        query += f" LIMIT {int(settings.dcp_housing_limit)}"
+
+    try:
+        with psycopg.connect(settings.nycdb_database_url) as conn, conn.cursor() as cur, open(out_path, "wb") as f:
+            copy_sql = f"COPY ({query}) TO STDOUT WITH CSV HEADER"
+            with cur.copy(copy_sql) as copy:
+                while True:
+                    chunk = copy.read()
+                    if not chunk:
+                        break
+                    f.write(chunk)
+    except Exception as exc:
+        logger.warning("Failed to export DCP Housing table: %s", exc)
+        return False
+
+    logger.info("Saved DCP Housing CSV to %s", out_path)
+    return True
+
+
+def _parse_db_url(url: str) -> dict:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("postgres", "postgresql"):
+        raise ValueError("Unsupported scheme (expected postgresql://)")
+    user = parsed.username or getpass.getuser()
+    password = parsed.password or ""
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 5432
+    database = parsed.path.lstrip("/") or user
+    return {"user": user, "password": password, "host": host, "port": port, "database": database}

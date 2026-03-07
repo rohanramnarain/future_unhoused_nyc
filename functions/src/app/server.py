@@ -464,6 +464,7 @@ TECHNICAL_DETAILS_COPY = html.Div(className="fhf-prose", children=[
         ]),
         html.Li("Use this repo for source code, pipeline scripts, deployment configuration, and change history."),
     ]),
+    html.P("Created by Rohan Ramnarain."),
 ])
 
 
@@ -547,10 +548,10 @@ app.layout = dbc.Container([
                     ),
                 ]),
                 html.Div(className="mt-3 fhf-links", children=[
+                    html.A("What I am looking at?", id="link-read-map", href="#read-map", className="me-3"),
                     html.A("Sources", id="link-sources", href="#sources", className="me-3"),
                     html.A("Method", id="link-method", href="#method", className="me-3"),
                     html.A("Limitations", id="link-limits", href="#limits", className="me-3"),
-                    html.A("What am I looking at?", id="link-read-map", href="#read-map", className="me-3"),
                     html.A("For Techies", id="link-technical", href="#technical-details"),
                 ]),
             ]),
@@ -702,6 +703,14 @@ app.layout = dbc.Container([
                     html.Li("Spatial aggregation (H3) smooths local variation; do not interpret a single hex as a definitive hotspot."),
                     html.Li("Use this to prioritize questions and outreach, not to target enforcement or penalize communities."),
                     html.Li("Always pair model outputs with lived experience, service provider context, and qualitative evidence."),
+                ]),
+                html.H6("Data bias", className="fhf-section-title mt-3"),
+                html.Ul([
+                    html.Li("Selection and reporting bias: 311/complaint-based features are partly a function of trust, language access, digital access, and willingness to report; neighborhoods with lower reporting can look artificially lower-risk even when need is high."),
+                    html.Li("Missingness is likely not at random (MNAR): gaps in filings, geocodes, or complaint records often correlate with administrative capacity and legal precarity, so simple omission can induce systematic underestimation in marginalized areas."),
+                    html.Li("Measurement and construct bias: proxy targets (for example, homelessness-related 311 activity) measure service contact and visibility, not the full latent construct of housing instability or unsheltered need."),
+                    html.Li("Temporal drift and policy endogeneity: relationships learned on prior years can shift after policy changes, outreach campaigns, weather shocks, or enforcement strategy changes, reducing transportability of learned patterns."),
+                    html.Li("Scale and denominator effects: hex-level aggregation can hide within-hex heterogeneity, and raw count features without population-at-risk normalization can over-rank denser areas relative to per-capita burden."),
                 ]),
             ]),
         ),
