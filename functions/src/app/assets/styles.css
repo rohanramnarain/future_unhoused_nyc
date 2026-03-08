@@ -358,6 +358,19 @@ a:hover {
 
 .fhf-prose {
 	padding-right: 2px;
+	font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+	font-size: 0.97rem;
+	line-height: 1.62;
+}
+
+.accordion-body,
+.accordion-body .fhf-prose,
+.accordion-body .fhf-prose p,
+.accordion-body .fhf-prose li,
+.accordion-body .fhf-prose a,
+.accordion-body .fhf-prose div,
+.accordion-body .fhf-prose span {
+	font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
 }
 
 .fhf-prose p,
@@ -381,6 +394,12 @@ a:hover {
 	font-family: "Space Grotesk", "Avenir Next", sans-serif;
 	font-weight: 700;
 	letter-spacing: -0.01em;
+}
+
+.accordion-body .fhf-section-title {
+	font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+	font-weight: 800;
+	letter-spacing: 0;
 }
 
 .accordion {

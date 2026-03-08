@@ -513,8 +513,9 @@ TECHNICAL_DETAILS_COPY = html.Div(className="fhf-prose", children=[
     html.P([
         "Created by ",
         html.A("Rohan Ramnarain", href="https://rohanramnarain.com", target="_blank"),
-        ".",
     ]),
+    html.H6("Special thanks", className="fhf-section-title"),
+    html.P("Kevin Guillermo, Marilyn Echeverria, and Alice Dong for contributing to this project."),
 ])
 
 

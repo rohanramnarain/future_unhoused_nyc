@@ -27,6 +27,52 @@ MODEL_LABELS = {
     "rf": "Random Forest",
 }
 
+COLOR_STOPS = [
+    {"max": 0.0, "color": [0, 0, 0, 0]},
+    {"max": 0.4, "color": [255, 255, 204, 120]},
+    {"max": 0.6, "color": [255, 237, 160, 170]},
+    {"max": 0.8, "color": [254, 178, 76, 210]},
+    {"max": 0.9, "color": [253, 141, 60, 235]},
+    {"max": 1.0, "color": [189, 0, 38, 255]},
+]
+
+METRIC_ORDER = [
+    "pred",
+    "lo",
+    "hi",
+    "n311_y",
+    "nhpd_y",
+    "nevict_y",
+    "nfiled_y",
+    "n_dcp_units",
+    "n_dcp_aff_units",
+    "n_dcp_expiring5yr",
+    "n_dcp_expired",
+    "dcp_status_median",
+]
+
+METRIC_LABELS = {
+    "pred": "Prediction (mu)",
+    "lo": "Lower band (lo)",
+    "hi": "Upper band (hi)",
+    "n311_y": "311 requests",
+    "nhpd_y": "HPD complaints",
+    "nevict_y": "Executed evictions",
+    "nfiled_y": "Filed evictions",
+    "n_dcp_units": "DCP units",
+    "n_dcp_aff_units": "DCP affordable units",
+    "n_dcp_expiring5yr": "DCP units expiring in 5 years",
+    "n_dcp_expired": "DCP expired units",
+    "dcp_status_median": "DCP status median",
+}
+
+RANK_METRICS = {"pred", "lo", "hi"}
+
+METRIC_OPTIONS = [
+    {"label": METRIC_LABELS[key], "value": key}
+    for key in METRIC_ORDER
+]
+
 logger = get_logger()
 
 app = dash.Dash(
@@ -236,10 +282,16 @@ def _build_zip_props(hex_features: List[dict]):
 
 def build_geojson_blob(pred_path: str, hex_features: List[dict], zip_props_by_hex: dict):
     preds = pd.read_csv(pred_path)
-    props_by_hex_year = {
-        (r.hex, int(r.year)): {"pred": float(r.pred), "lo": float(r.lo), "hi": float(r.hi)}
-        for r in preds.itertuples()
-    }
+    available_metrics = [m for m in METRIC_ORDER if m in preds.columns]
+
+    props_by_hex_year = {}
+    for r in preds.itertuples(index=False):
+        metric_props = {}
+        for metric in available_metrics:
+            value = getattr(r, metric, None)
+            if pd.notna(value):
+                metric_props[metric] = float(value)
+        props_by_hex_year[(r.hex, int(r.year))] = metric_props
 
     years = sorted(preds["year"].unique())
     feat_out = []
@@ -313,24 +365,18 @@ GJ_BY_MODEL, MODEL_OPTIONS, DEFAULT_MODEL = build_all_geojson_blobs()
 
 
 def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred", focus_view_state: dict | None = None):
-    brewer_stops = [
-        {"max": 0.0, "color": [0, 0, 0, 0]},
-        {"max": 0.4, "color": [255, 255, 204, 120]},
-        {"max": 0.6, "color": [255, 237, 160, 170]},
-        {"max": 0.8, "color": [254, 178, 76, 210]},
-        {"max": 0.9, "color": [253, 141, 60, 235]},
-        {"max": 1.0, "color": [189, 0, 38, 255]},
-    ]
     spec = {
         "initialViewState": {"latitude": 40.7128, "longitude": -74.0060, "zoom": 10},
         "controller": True,
         "mapStyle": "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+        "metricLabels": METRIC_LABELS,
+        "rankMetrics": sorted(RANK_METRICS),
         "layers": [{
             "@@type": "GeoJsonLayer",
             "id": "hex-choropleth",
             "data": geojson,
             "colorMetric": color_metric,
-            "colorStops": brewer_stops,
+            "colorStops": COLOR_STOPS,
             "pickable": True,
             "autoHighlight": True,
             "highlightColor": [255, 255, 255, 200],
@@ -467,8 +513,9 @@ TECHNICAL_DETAILS_COPY = html.Div(className="fhf-prose", children=[
     html.P([
         "Created by ",
         html.A("Rohan Ramnarain", href="https://rohanramnarain.com", target="_blank"),
-        ".",
     ]),
+    html.H6("Special thanks", className="fhf-section-title"),
+    html.P("Kevin Guillermo, Marilyn Echeverria, and Alice Dong for contributing to this project."),
 ])
 
 
@@ -548,7 +595,7 @@ app.layout = dbc.Container([
                     html.A(
                         dbc.Badge("Thanks to Open Data Week and School of Data", color="light", text_color="dark", pill=True),
                         href="/odwoutro",
-                        className="text-decoration-none ms-2",
+                        className="text-decoration-none",
                     ),
                 ]),
                 html.Div(className="mt-3 fhf-links", children=[
@@ -589,11 +636,7 @@ app.layout = dbc.Container([
                     dbc.Select(
                         id="metric",
                         value="pred",
-                        options=[
-                            {"label": "Prediction (μ)", "value": "pred"},
-                            {"label": "Lower band (lo)", "value": "lo"},
-                            {"label": "Upper band (hi)", "value": "hi"},
-                        ],
+                        options=METRIC_OPTIONS,
                     ),
                 ], md=3),
 
@@ -625,6 +668,7 @@ app.layout = dbc.Container([
         ]),
     ]),
 
+    html.Div(id="map-legend", className="fhf-map-legend mb-2"),
     html.Div(id="deck-container", className="fhf-map-shell mb-3"),
 
     dbc.Accordion(id="info-accordion", className="mb-4", always_open=False, start_collapsed=True, children=[
@@ -678,7 +722,7 @@ app.layout = dbc.Container([
                 ]),
                 html.Ul([
                     html.Li("Treat the map as a hotspot ranking tool, not an absolute forecast of probability."),
-                    html.Li("Use Metric to view prediction (μ) or uncertainty bands (lo/hi)."),
+                    html.Li("Use Metric to switch between model outputs (pred/lo/hi) and raw predictor layers."),
                     html.Li("Hover a hex for the value and year; ZIP is approximate."),
                 ]),
             ]),
@@ -727,6 +771,114 @@ app.layout = dbc.Container([
 ], fluid=True, className="fhf-page px-3 px-md-4 pb-4")
 
 
+def _year_features_for_model(model_key: str, year: int) -> list[dict]:
+    model = model_key if model_key in GJ_BY_MODEL else DEFAULT_MODEL
+    gj_full = GJ_BY_MODEL[model]
+    return [f for f in gj_full["features"] if f["properties"]["year"] == year]
+
+
+def _legend_value_formatter(metric_key: str, value: float) -> str:
+    if metric_key in RANK_METRICS:
+        return f"{value:.2f}"
+    av = abs(value)
+    if av >= 1000:
+        return f"{value:,.0f}"
+    if av >= 10:
+        return f"{value:,.1f}"
+    return f"{value:,.2f}"
+
+
+def _legend_domain(metric_key: str, year_features: list[dict]) -> tuple[float, float, str]:
+    if metric_key in RANK_METRICS:
+        return 0.0, 1.0, "Percentile rank scale (0 to 1)."
+
+    vals = []
+    for feat in year_features:
+        v = feat.get("properties", {}).get(metric_key)
+        if pd.notna(v):
+            vals.append(float(v))
+
+    if not vals:
+        return 0.0, 1.0, "No data available for this layer/year."
+
+    series = pd.Series(vals, dtype=float)
+    raw_min = float(series.min())
+    raw_max = float(series.max())
+    p05 = float(series.quantile(0.05))
+    p95 = float(series.quantile(0.95))
+    dom_min = p05 if p95 > p05 else raw_min
+    dom_max = p95 if p95 > p05 else raw_max
+
+    if not dom_max > dom_min:
+        dom_min = raw_min - 1.0
+        dom_max = raw_max + 1.0
+
+    note = (
+        f"Color scale uses clipped range {_legend_value_formatter(metric_key, dom_min)}"
+        f" to {_legend_value_formatter(metric_key, dom_max)} (5th to 95th percentile)."
+    )
+    return dom_min, dom_max, note
+
+
+def _legend_component(metric_key: str, year_features: list[dict]):
+    metric_label = METRIC_LABELS.get(metric_key, metric_key)
+    dom_min, dom_max, note = _legend_domain(metric_key, year_features)
+
+    items = []
+    prev_val = dom_min
+    for idx, stop in enumerate(COLOR_STOPS):
+        stop_val = dom_min + stop["max"] * (dom_max - dom_min)
+        rgba = stop["color"]
+        swatch_style = {
+            "backgroundColor": f"rgba({rgba[0]}, {rgba[1]}, {rgba[2]}, {rgba[3] / 255.0:.3f})",
+            "border": "1px solid rgba(120, 98, 72, 0.28)",
+        }
+        if idx == 0:
+            label = f"<= {_legend_value_formatter(metric_key, stop_val)}"
+        else:
+            label = (
+                f"{_legend_value_formatter(metric_key, prev_val)}"
+                f" to {_legend_value_formatter(metric_key, stop_val)}"
+            )
+        prev_val = stop_val
+
+        items.append(
+            html.Div(
+                className="fhf-legend-item",
+                children=[
+                    html.Span(className="fhf-legend-chip", style=swatch_style),
+                    html.Span(label, className="fhf-legend-text"),
+                ],
+            )
+        )
+
+    return html.Div(
+        children=[
+            html.Div(
+                className="fhf-legend-header",
+                children=[
+                    html.Span("Map Key", className="fhf-legend-kicker"),
+                    html.Span(metric_label, className="fhf-legend-title"),
+                ],
+            ),
+            html.Div(className="fhf-legend-items", children=items),
+            html.Div(note, className="fhf-legend-note"),
+        ]
+    )
+
+
+@app.callback(
+    Output("map-legend", "children"),
+    Input("model", "value"),
+    Input("year", "value"),
+    Input("metric", "value"),
+)
+def update_legend(model_key, year, metric):
+    metric_key = metric if metric in METRIC_LABELS else "pred"
+    year_features = _year_features_for_model(model_key, year)
+    return _legend_component(metric_key, year_features)
+
+
 @app.callback(
     Output("deck-container", "children"),
     Input("model", "value"),
@@ -737,16 +889,15 @@ app.layout = dbc.Container([
     State("zip-input", "value"),
 )
 def update_map(model_key, year, metric, zip_clicks, zip_enter, zip_value):  # pragma: no cover - UI wiring
-    model = model_key if model_key in GJ_BY_MODEL else DEFAULT_MODEL
-    gj_full = GJ_BY_MODEL[model]
-    year_features = [f for f in gj_full["features"] if f["properties"]["year"] == year]
+    metric_key = metric if metric in METRIC_LABELS else "pred"
+    year_features = _year_features_for_model(model_key, year)
     year_gj = {"type": "FeatureCollection", "features": year_features}
 
     trigger_id = ctx.triggered_id if ctx.triggered_id else None
     focus_state = None
     if trigger_id in ("zip-submit", "zip-input"):
         focus_state = _zip_focus_view_state(zip_value)
-    spec = make_deck_spec(year_gj, year=year, color_metric=metric, focus_view_state=focus_state)
+    spec = make_deck_spec(year_gj, year=year, color_metric=metric_key, focus_view_state=focus_state)
     spec["mapboxApiAccessToken"] = settings.mapbox_token or ""
     json_spec = json.dumps(spec)
     iframe_template = """
@@ -765,6 +916,8 @@ def update_map(model_key, year, metric, zip_clicks, zip_enter, zip_value):  # pr
                 const layerSpec = spec.layers[0];
                 const { colorMetric = 'pred', colorStops = [], ...layerProps } = layerSpec;
                 const focusViewState = spec.focusViewState || null;
+                const metricLabels = spec.metricLabels || {};
+                const rankMetrics = spec.rankMetrics || [];
                 const defaultStops = [
                     { max: 0.0, color: [0, 0, 0, 0] },
                     { max: 0.4, color: [255, 255, 204, 120] },
@@ -774,12 +927,56 @@ def update_map(model_key, year, metric, zip_clicks, zip_enter, zip_value):  # pr
                     { max: 1.0, color: [189, 0, 38, 255] }
                 ];
                 const stops = colorStops.length ? colorStops : defaultStops;
+                const isRankMetric = rankMetrics.includes(colorMetric);
+                const quantile = (arr, q) => {
+                    if (!arr.length) { return null; }
+                    const pos = (arr.length - 1) * q;
+                    const base = Math.floor(pos);
+                    const rest = pos - base;
+                    const next = arr[base + 1] !== undefined ? arr[base + 1] : arr[base];
+                    return arr[base] + rest * (next - arr[base]);
+                };
+                const metricValues = (layerProps?.data?.features || [])
+                    .map(f => Number(f?.properties?.[colorMetric]))
+                    .filter(Number.isFinite)
+                    .sort((a, b) => a - b);
+
+                let domainMin = 0;
+                let domainMax = 1;
+                if (!isRankMetric && metricValues.length) {
+                    const p05 = quantile(metricValues, 0.05);
+                    const p95 = quantile(metricValues, 0.95);
+                    const rawMin = metricValues[0];
+                    const rawMax = metricValues[metricValues.length - 1];
+                    domainMin = Number.isFinite(p05) ? p05 : rawMin;
+                    domainMax = Number.isFinite(p95) ? p95 : rawMax;
+                    if (!(domainMax > domainMin)) {
+                        domainMin = rawMin;
+                        domainMax = rawMax;
+                    }
+                    if (!(domainMax > domainMin)) {
+                        domainMin = rawMin - 1;
+                        domainMax = rawMax + 1;
+                    }
+                }
+
+                const normalizeMetricValue = (val) => {
+                    const num = Number(val);
+                    if (!Number.isFinite(num)) { return null; }
+                    if (isRankMetric) {
+                        return Math.max(0, Math.min(1, num));
+                    }
+                    const clipped = Math.max(domainMin, Math.min(domainMax, num));
+                    return (clipped - domainMin) / (domainMax - domainMin || 1);
+                };
+
                 const formatMetricValue = (val) => {
                     const num = Number(val);
                     if (!Number.isFinite(num)) { return '—'; }
-                    if (Math.abs(num) >= 1000) { return num.toFixed(0); }
-                    if (Math.abs(num) >= 10) { return num.toFixed(1); }
-                    return num.toFixed(3);
+                    if (isRankMetric) { return num.toFixed(3); }
+                    if (Math.abs(num) >= 1000) { return num.toLocaleString(undefined, { maximumFractionDigits: 0 }); }
+                    if (Math.abs(num) >= 10) { return num.toLocaleString(undefined, { maximumFractionDigits: 1 }); }
+                    return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
                 };
 
                 const bandColor = (value) => {
@@ -794,9 +991,12 @@ def update_map(model_key, year, metric, zip_clicks, zip_enter, zip_value):  # pr
                 const layer = new deck.GeoJsonLayer({
                     ...layerProps,
                     getFillColor: feature => {
-                        const value = feature?.properties?.[colorMetric] ?? 0;
-                        const clamped = Math.max(0, Math.min(1, Number(value)));
-                        return bandColor(clamped);
+                        const rawValue = feature?.properties?.[colorMetric];
+                        const normalized = normalizeMetricValue(rawValue);
+                        if (normalized === null) {
+                            return [0, 0, 0, 0];
+                        }
+                        return bandColor(normalized);
                     }
                 });
                 if (window.maplibregl) {
@@ -822,7 +1022,7 @@ def update_map(model_key, year, metric, zip_clicks, zip_enter, zip_value):  # pr
                         if (!object) { return null; }
                         const props = object.properties || {};
                         const metricValue = formatMetricValue(props[colorMetric]);
-                        const metricLabel = colorMetric.toUpperCase();
+                        const metricLabel = metricLabels[colorMetric] || colorMetric;
                         const zipText = props.zip_label || props.zip || '';
                         const zipLine = zipText ? `ZIP: ${zipText}<br/>` : '';
                         return {
