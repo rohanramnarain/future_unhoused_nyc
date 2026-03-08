@@ -497,6 +497,10 @@ TECHNICAL_DETAILS_COPY = html.Div(className="fhf-prose", children=[
         html.B("Model + bands · "),
         "src/models/baselines.py fits your selected model on nine engineered signals (n311_y, nhpd_y, nevict_y, nfiled_y, n_dcp_units, n_dcp_aff_units, n_dcp_expiring5yr, n_dcp_expired, dcp_status_median), while src/models/evaluate.py wraps the predictions with symmetric conformal intervals so each hex gets pred, lo, and hi.",
     ]),
+    html.H6("Why choose these 3 models", className="fhf-section-title"),
+    html.P(
+        "We use LightGBM, XGBoost, and Random Forest because this project is tabular, nonlinear, and relatively sparse at the hex-year level. LightGBM and XGBoost capture threshold effects and interactions in complaint/eviction/housing signals with strong predictive performance, while Random Forest gives a stable, low-assumption ensemble baseline that is less sensitive to local noise. Using all three lets us compare consistent feature-driven rankings across model families instead of relying on a single algorithmic view of risk."
+    ),
     html.P("Need higher fidelity? Swap the bootstrap inputs for full NYC feeds, rerun scripts/aggregate_hpd_complaints.py and scripts/train_baseline.py, then redeploy."),
     html.H6("GitHub", className="fhf-section-title"),
     html.Ul([
