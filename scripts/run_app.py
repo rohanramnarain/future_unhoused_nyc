@@ -5,11 +5,11 @@ from src.app.server import app
 from src.config import settings
 
 def main():
-    # Dash ≥2.17
+    # Disable Dash dev tools so the debug toolbar never renders.
     if hasattr(app, "run"):
-        app.run(host=settings.app_host, port=settings.app_port, debug=True)
+        app.run(host=settings.app_host, port=settings.app_port, debug=False)
     else:  # fallback for older Dash
-        app.run_server(host=settings.app_host, port=settings.app_port, debug=True)
+        app.run_server(host=settings.app_host, port=settings.app_port, debug=False)
 
 if __name__ == "__main__":
     main()

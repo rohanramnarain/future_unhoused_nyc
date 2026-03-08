@@ -130,10 +130,34 @@ def _load_dcp_projects() -> pd.DataFrame:
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
     df["latitude"] = pd.to_numeric(_series_from_candidates(df, ["latitude", "lat"]), errors="coerce")
     df["longitude"] = pd.to_numeric(_series_from_candidates(df, ["longitude", "lon", "lng"]), errors="coerce")
-    df["units_total"] = pd.to_numeric(_series_from_candidates(df, ["units_total", "total_units", "project_units", "tot_units"], default=0), errors="coerce").fillna(0)
-    df["units_affordable"] = pd.to_numeric(_series_from_candidates(df, ["units_affordable", "affordable_units", "aff_units"], default=0), errors="coerce").fillna(0)
+    units_total_candidates = [
+        "units_total",
+        "total_units",
+        "project_units",
+        "tot_units",
+        # Fallback for DOB jobs exports when a DCP-specific total-units field is absent.
+        "unitsco",
+        "classaprop",
+        "classainit",
+        "classanet",
+    ]
+    units_aff_candidates = [
+        "units_affordable",
+        "affordable_units",
+        "aff_units",
+    ]
+    status_candidates = ["regulatory_status", "status", "regulatorystatus", "jobstatus"]
+
+    df["units_total"] = pd.to_numeric(
+        _series_from_candidates(df, units_total_candidates, default=0),
+        errors="coerce",
+    ).fillna(0)
+    df["units_affordable"] = pd.to_numeric(
+        _series_from_candidates(df, units_aff_candidates, default=0),
+        errors="coerce",
+    ).fillna(0)
     df["exp_year"] = pd.to_numeric(_series_from_candidates(df, ["exp_year", "expiration_year", "reg_agreement_expiration_year"], default=None), errors="coerce")
-    df["regulatory_status"] = _series_from_candidates(df, ["regulatory_status", "status", "regulatorystatus"], default="")
+    df["regulatory_status"] = _series_from_candidates(df, status_candidates, default="")
     df["bbl"] = _series_from_candidates(df, ["bbl"], default="").astype(str)
     df = _geocode_missing_projects(df)
     df = df.dropna(subset=["latitude", "longitude"]).copy()
