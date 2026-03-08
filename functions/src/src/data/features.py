@@ -128,6 +128,7 @@ def _load_dcp_projects() -> pd.DataFrame:
         return pd.DataFrame()
 
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+    raw_cols = set(df.columns)
     df["latitude"] = pd.to_numeric(_series_from_candidates(df, ["latitude", "lat"]), errors="coerce")
     df["longitude"] = pd.to_numeric(_series_from_candidates(df, ["longitude", "lon", "lng"]), errors="coerce")
     units_total_candidates = [
@@ -146,19 +147,56 @@ def _load_dcp_projects() -> pd.DataFrame:
         "affordable_units",
         "aff_units",
     ]
+    exp_year_candidates = ["exp_year", "expiration_year", "reg_agreement_expiration_year"]
     status_candidates = ["regulatory_status", "status", "regulatorystatus", "jobstatus"]
 
-    df["units_total"] = pd.to_numeric(
-        _series_from_candidates(df, units_total_candidates, default=0),
+    total_cols = [c for c in units_total_candidates if c in raw_cols]
+    if total_cols:
+        total_df = pd.concat([pd.to_numeric(df[c], errors="coerce") for c in total_cols], axis=1)
+        df["units_total"] = total_df.bfill(axis=1).iloc[:, 0].fillna(0.0)
+    else:
+        df["units_total"] = 0.0
+
+    aff_cols = [c for c in units_aff_candidates if c in raw_cols]
+    if aff_cols:
+        aff_df = pd.concat([pd.to_numeric(df[c], errors="coerce") for c in aff_cols], axis=1)
+        df["units_affordable"] = aff_df.bfill(axis=1).iloc[:, 0].fillna(0.0)
+    else:
+        df["units_affordable"] = 0.0
+    df["exp_year"] = pd.to_numeric(
+        _series_from_candidates(df, exp_year_candidates, default=None),
         errors="coerce",
-    ).fillna(0)
-    df["units_affordable"] = pd.to_numeric(
-        _series_from_candidates(df, units_aff_candidates, default=0),
-        errors="coerce",
-    ).fillna(0)
-    df["exp_year"] = pd.to_numeric(_series_from_candidates(df, ["exp_year", "expiration_year", "reg_agreement_expiration_year"], default=None), errors="coerce")
+    )
     df["regulatory_status"] = _series_from_candidates(df, status_candidates, default="")
     df["bbl"] = _series_from_candidates(df, ["bbl"], default="").astype(str)
+
+    # If source lacks explicit affordable units, derive a conservative proxy from
+    # ownership labels so the layer remains informative for DOB-style extracts.
+    has_direct_aff = any(c in raw_cols for c in units_aff_candidates)
+    if not has_direct_aff:
+        owner = _series_from_candidates(df, ["ownership"], default="").astype(str).str.lower()
+        aff_share = pd.Series(0.15, index=df.index)
+        aff_share = aff_share.mask(
+            owner.str.contains(r"public|nycha|non-profit|not-for-profit|government|city|state", regex=True),
+            0.60,
+        )
+        aff_share = aff_share.mask(
+            owner.str.contains(r"limited profit|co-op|cooperative|mitchell", regex=True),
+            0.35,
+        )
+        df["units_affordable"] = (df["units_total"] * aff_share).clip(lower=0.0)
+        logger.info("Derived proxy affordable units from ownership labels for DOB-style DCP input")
+
+    # If source lacks explicit regulatory expiration year, estimate using a
+    # typical 20-year compliance horizon from completion/permit year.
+    has_direct_exp = any(c in raw_cols for c in exp_year_candidates)
+    if not has_direct_exp:
+        complete_year = pd.to_numeric(_series_from_candidates(df, ["compltyear"], default=None), errors="coerce")
+        permit_year = pd.to_numeric(_series_from_candidates(df, ["permityear"], default=None), errors="coerce")
+        start_year = complete_year.fillna(permit_year)
+        df["exp_year"] = pd.to_numeric(start_year, errors="coerce") + 20
+        logger.info("Derived proxy exp_year from compltyear/permityear + 20 years for DOB-style DCP input")
+
     df = _geocode_missing_projects(df)
     df = df.dropna(subset=["latitude", "longitude"]).copy()
     if df.empty:

@@ -510,7 +510,11 @@ TECHNICAL_DETAILS_COPY = html.Div(className="fhf-prose", children=[
         ]),
         html.Li("Use this repo for source code, pipeline scripts, deployment configuration, and change history."),
     ]),
-    html.P("Created by Rohan Ramnarain."),
+    html.P([
+        "Created by ",
+        html.A("Rohan Ramnarain", href="https://rohanramnarain.com", target="_blank"),
+        ".",
+    ]),
 ])
 
 
