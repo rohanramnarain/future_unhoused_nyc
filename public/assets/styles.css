@@ -376,6 +376,19 @@ a:hover {
 .fhf-prose p,
 .fhf-prose li {
 	max-width: 72ch;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+}
+
+.fhf-prose a,
+.fhf-prose code,
+.fhf-prose span {
+	overflow-wrap: anywhere;
+	word-break: break-word;
+}
+
+.fhf-prose code {
+	white-space: normal;
 }
 
 .fhf-prose p {
