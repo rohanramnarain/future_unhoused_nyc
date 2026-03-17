@@ -86,6 +86,126 @@ server = app.server
 ODW_INTRO_IMAGE = "/assets/odwintro.png"
 ODW_OUTRO_IMAGE = "/assets/odwoutro.png"
 
+MODEL_PAGE_META = {
+    "lgbm": {
+        "title": "LightGBM",
+        "diagram": "/assets/model_diagram_lgbm.svg?v=4",
+        "summary": (
+            "LightGBM learns nonlinear risk patterns from our nine engineered housing-pressure "
+            "signals and builds trees sequentially to correct residual errors."
+        ),
+        "details": [
+            "Inputs include 311 requests, HPD complaints, executed/filed evictions, and DCP housing program counts mapped to each H3 hex.",
+            "The model is trained on historical outcomes and then projected across 2026-2029 feature tables.",
+            "Outputs are scaled to within-year relative risk ranks and paired with conformal lower/upper bands.",
+        ],
+        "story_steps": [
+            {
+                "title": "Feature intake",
+                "copy": "Each hex starts with engineered signals from 311, HPD complaints, evictions, and DCP housing attributes.",
+                "x": 16,
+                "y": 18,
+            },
+            {
+                "title": "First boosted split",
+                "copy": "An initial shallow tree partitions major risk structure, often on complaint and eviction intensity thresholds.",
+                "x": 36,
+                "y": 30,
+            },
+            {
+                "title": "Residual correction",
+                "copy": "New trees focus on remaining error pockets, refining where the first passes under- or over-estimated pressure.",
+                "x": 58,
+                "y": 43,
+            },
+            {
+                "title": "Ranked output",
+                "copy": "Final scores are normalized per year to relative 0-1 risk rank, then wrapped with conformal low/high bands.",
+                "x": 79,
+                "y": 71,
+            },
+        ],
+    },
+    "rf": {
+        "title": "Random Forest",
+        "diagram": "/assets/model_diagram_rf.svg?v=4",
+        "summary": (
+            "Random Forest averages many independently trained decision trees on the same nine "
+            "engineered features to produce stable hex-level risk estimates."
+        ),
+        "details": [
+            "Each tree sees a bootstrap sample of the training set and a randomized subset of predictors at each split.",
+            "Averaging across trees reduces sensitivity to local noise in complaints or eviction spikes.",
+            "Predictions are converted to relative yearly ranks and wrapped with conformal uncertainty bands.",
+        ],
+        "story_steps": [
+            {
+                "title": "Bootstrap sampling",
+                "copy": "Each tree trains on a slightly different sample of hex-year records, creating diverse decision views.",
+                "x": 18,
+                "y": 20,
+            },
+            {
+                "title": "Randomized feature splits",
+                "copy": "At each fork, the tree tests a random subset of predictors, reducing over-reliance on any single signal.",
+                "x": 43,
+                "y": 36,
+            },
+            {
+                "title": "Independent tree votes",
+                "copy": "Hundreds of trees produce parallel predictions, from conservative to aggressive risk estimates.",
+                "x": 64,
+                "y": 52,
+            },
+            {
+                "title": "Ensemble average",
+                "copy": "The model averages tree outputs into one stable score and then converts it to annual relative rank.",
+                "x": 82,
+                "y": 74,
+            },
+        ],
+    },
+    "xgb": {
+        "title": "XGBoost",
+        "diagram": "/assets/model_diagram_xgb.svg?v=4",
+        "summary": (
+            "XGBoost fits regularized boosting trees level-by-level, refining error pockets in our "
+            "hex-level housing instability feature space."
+        ),
+        "details": [
+            "Training uses the same core nine predictors to keep model comparisons consistent.",
+            "Regularization and step-wise boosting help balance fit quality with stability.",
+            "Final outputs are transformed into annual relative risk ranks with conformal lo/hi intervals.",
+        ],
+        "story_steps": [
+            {
+                "title": "Structured baseline split",
+                "copy": "The first boosted tree establishes broad separation with level-wise growth across key housing pressure signals.",
+                "x": 17,
+                "y": 18,
+            },
+            {
+                "title": "Regularized expansion",
+                "copy": "Subsequent trees add constrained depth and penalties, preventing unstable jumps from noisy local spikes.",
+                "x": 40,
+                "y": 34,
+            },
+            {
+                "title": "Stage-wise error reduction",
+                "copy": "Each round corrects residual error while keeping updates controlled through learning-rate steps.",
+                "x": 61,
+                "y": 50,
+            },
+            {
+                "title": "Final risk surface",
+                "copy": "Predictions are transformed into year-specific rank values and uncertainty intervals for map comparison.",
+                "x": 81,
+                "y": 72,
+            },
+        ],
+    },
+}
+
 
 @server.route("/odwintro")
 def odw_intro_page():  # pragma: no cover - simple route for static intro slide
@@ -167,6 +287,512 @@ def odw_outro_page():  # pragma: no cover - simple route for static outro slide
 </html>
 """
         return Response(page, mimetype="text/html")
+
+
+@server.route("/models/<model_key>")
+def model_detail_page(model_key: str):  # pragma: no cover - static explainer route
+    model = MODEL_PAGE_META.get(model_key)
+    if not model:
+        return Response("Model page not found", status=404, mimetype="text/plain")
+
+    bullets = "".join(f"<li>{item}</li>" for item in model["details"])
+    steps = model.get("story_steps", [])
+    callouts = "".join(
+        (
+            f"<button class='model-callout' type='button' data-step='{idx}' aria-label='Jump to step {idx + 1}'>"
+            f"<span>{idx + 1}</span></button>"
+        )
+        for idx, step in enumerate(steps)
+    )
+    story_cards = "".join(
+        (
+            f"<article class='model-step-card' id='model-step-{idx}' data-step='{idx}'>"
+            f"<div class='model-step-kicker'>Step {idx + 1}</div>"
+            f"<h2>{step['title']}</h2>"
+            f"<p>{step['copy']}</p>"
+            "</article>"
+        )
+        for idx, step in enumerate(steps)
+    )
+    page = f"""
+<!doctype html>
+<html>
+    <head>
+        <meta charset=\"utf-8\" />
+        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+        <title>{model['title']} | The Future of the Unhoused</title>
+        <link href=\"/assets/styles.css\" rel=\"stylesheet\" />
+        <style>
+            .model-page-wrap {{
+                max-width: 1800px;
+                margin: 0 auto;
+                padding: 1.4rem 1rem 2rem;
+            }}
+            .model-story-grid {{
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 1rem;
+                align-items: start;
+            }}
+            .model-page-kicker {{
+                font-size: 0.78rem;
+                font-weight: 800;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                color: #0f8b7a;
+                margin-bottom: 0.45rem;
+            }}
+            .model-page-title {{
+                margin: 0;
+                font-family: \"Space Grotesk\", \"Avenir Next Condensed\", sans-serif;
+                font-size: clamp(1.85rem, 4.1vw, 3.35rem);
+                letter-spacing: -0.02em;
+                line-height: 1.06;
+            }}
+            .model-page-copy {{
+                margin-top: 0.75rem;
+                max-width: 80ch;
+            }}
+            .model-page-copy ul {{
+                margin: 0.6rem 0 0;
+                padding-left: 1.2rem;
+            }}
+            .model-page-back {{
+                display: inline-block;
+                margin-bottom: 0.8rem;
+                font-weight: 700;
+            }}
+            .model-page-diagram-shell {{
+                margin-top: 1rem;
+                position: sticky;
+                top: 10px;
+                border: 1px solid rgba(168, 143, 110, 0.32);
+                border-radius: 18px;
+                background: rgba(255, 255, 255, 0.92);
+                padding: 0.8rem;
+                box-shadow: 0 24px 50px rgba(52, 44, 33, 0.14);
+                overflow: hidden;
+            }}
+            .model-diagram-layer {{
+                position: relative;
+                width: 100%;
+                height: min(78vh, 820px);
+                min-height: 520px;
+                border-radius: 14px;
+                background: linear-gradient(180deg, #fbfbf8, #f4f3ef);
+                overflow: hidden;
+            }}
+            .model-tree-canvas {{
+                width: 100%;
+                height: 100%;
+                display: block;
+            }}
+            .model-callout-row {{
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.45rem;
+                justify-content: flex-end;
+                padding: 0.15rem 0.05rem 0.55rem;
+            }}
+            .model-callout {{
+                position: relative;
+                width: 34px;
+                height: 34px;
+                border-radius: 999px;
+                border: 2px solid rgba(15, 139, 122, 0.94);
+                background: rgba(255, 255, 255, 0.92);
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: 800;
+                color: #0f8b7a;
+                box-shadow: 0 7px 16px rgba(24, 28, 23, 0.15);
+                transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, color 0.2s ease;
+            }}
+            .model-callout:hover {{
+                transform: scale(1.05);
+            }}
+            .model-callout.active {{
+                background: #0f8b7a;
+                color: #ffffff;
+                box-shadow: 0 0 0 6px rgba(15, 139, 122, 0.18);
+            }}
+            .model-story-rail {{
+                margin-top: 0.2rem;
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+                gap: 0.8rem;
+            }}
+            .model-step-card {{
+                border: 1px solid rgba(168, 143, 110, 0.32);
+                background: rgba(255, 255, 255, 0.9);
+                border-radius: 14px;
+                padding: 0.9rem 1rem;
+                box-shadow: 0 8px 18px rgba(36, 42, 34, 0.08);
+                transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+            }}
+            .model-step-card.active {{
+                border-color: rgba(15, 139, 122, 0.72);
+                box-shadow: 0 12px 24px rgba(15, 139, 122, 0.18);
+                transform: translateY(-2px);
+            }}
+            .model-step-card h2 {{
+                margin: 0 0 0.38rem;
+                font-size: 1.02rem;
+                font-weight: 800;
+                color: #233028;
+            }}
+            .model-step-card p {{
+                margin: 0;
+                color: #4f5a50;
+                font-size: 0.95rem;
+                line-height: 1.45;
+            }}
+            .model-step-kicker {{
+                font-size: 0.72rem;
+                font-weight: 800;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                color: #0f8b7a;
+                margin-bottom: 0.26rem;
+            }}
+            @media (max-width: 768px) {{
+                .model-page-wrap {{
+                    padding: 1rem 0.9rem 1.4rem;
+                }}
+                .model-page-diagram-shell {{
+                    position: static;
+                    padding: 0.35rem;
+                }}
+                .model-diagram-layer {{
+                    height: 58vh;
+                    min-height: 420px;
+                }}
+                .model-story-rail {{
+                    grid-template-columns: 1fr;
+                }}
+                .model-callout {{
+                    width: 30px;
+                    height: 30px;
+                    font-size: 0.8rem;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <main class=\"model-page-wrap\">
+            <a class=\"model-page-back\" href=\"/#method\">Back to model overview</a>
+            <div class=\"model-page-kicker\">Model explainer</div>
+            <h1 class=\"model-page-title\">{model['title']}</h1>
+            <div class=\"model-page-copy fhf-prose\">
+                <p>{model['summary']}</p>
+                <ul>{bullets}</ul>
+            </div>
+            <section class=\"model-story-grid\" aria-label=\"{model['title']} model walkthrough\">
+                <div class=\"model-page-diagram-shell\">
+                    <div class=\"model-callout-row\" aria-label=\"Story step shortcuts\">{callouts}</div>
+                    <div class=\"model-diagram-layer\" aria-label=\"{model['title']} model diagram\">
+                        <canvas id=\"tree-canvas\" class=\"model-tree-canvas\" aria-label=\"Animated decision tree\"></canvas>
+                    </div>
+                </div>
+                <div class=\"model-story-rail\">{story_cards}</div>
+            </section>
+        </main>
+        <script>
+            (function () {{
+                const modelKey = "{model_key}";
+                const canvas = document.getElementById('tree-canvas');
+                const layer = canvas ? canvas.parentElement : null;
+                const cards = Array.from(document.querySelectorAll('.model-step-card'));
+                const pins = Array.from(document.querySelectorAll('.model-callout'));
+                if (!cards.length || !pins.length || !canvas || !layer) return;
+
+                const palettes = {{
+                    lgbm: {{ bg: '#f4f3ef', link: '#c2c3bf', blue: '#0f4f95', green: '#3f9f2f' }},
+                    rf: {{ bg: '#f5f4ef', link: '#b9bbb8', blue: '#124c8d', green: '#4b9d34' }},
+                    xgb: {{ bg: '#f3f2ee', link: '#b8b9b7', blue: '#174f91', green: '#4a9d35' }},
+                }};
+                const profiles = {{
+                    lgbm: {{ depth: 7, prune: 0.18, spawnRate: 0.07, speed: 0.34, greenBias: 0.49 }},
+                    rf: {{ depth: 6, prune: 0.26, spawnRate: 0.06, speed: 0.28, greenBias: 0.52 }},
+                    xgb: {{ depth: 7, prune: 0.21, spawnRate: 0.075, speed: 0.32, greenBias: 0.51 }},
+                }};
+                const featureMap = {{
+                    lgbm: ['n311_y', 'nhpd_y', 'nevict_y', 'n_dcp_aff_units', 'n_dcp_expired', 'nfiled_y'],
+                    rf: ['n311_y', 'nevict_y', 'nhpd_y', 'n_dcp_units', 'dcp_status_median', 'nfiled_y'],
+                    xgb: ['nfiled_y', 'nhpd_y', 'n311_y', 'n_dcp_expiring5yr', 'dcp_status_median', 'nevict_y'],
+                }};
+
+                const palette = palettes[modelKey] || palettes.lgbm;
+                const profile = profiles[modelKey] || profiles.lgbm;
+                const features = featureMap[modelKey] || featureMap.lgbm;
+
+                function makeRng(seedStr) {{
+                    let h = 2166136261;
+                    for (let i = 0; i < seedStr.length; i += 1) {{
+                        h ^= seedStr.charCodeAt(i);
+                        h = Math.imul(h, 16777619);
+                    }}
+                    return function () {{
+                        h += h << 13;
+                        h ^= h >>> 7;
+                        h += h << 3;
+                        h ^= h >>> 17;
+                        h += h << 5;
+                        return (h >>> 0) / 4294967296;
+                    }};
+                }}
+
+                const rand = makeRng(modelKey + '-tree');
+                let nodeId = 0;
+                let root = null;
+                let nodes = [];
+                let leaves = [];
+                let links = [];
+                let leafLoad = new Map();
+                let particles = [];
+                let lastTime = 0;
+                let spawnCarry = 0;
+                let ctx = null;
+
+                function newNode(depth) {{
+                    return {{ id: nodeId++, depth, children: [], parent: null, x: 0, y: 0, label: '' }};
+                }}
+
+                function buildTree(depth, maxDepth) {{
+                    const node = newNode(depth);
+                    if (depth >= maxDepth) return node;
+                    const mustBranch = depth < 2;
+                    const shouldBranch = mustBranch || rand() > profile.prune;
+                    if (!shouldBranch) return node;
+                    const makeSingle = depth > 2 && rand() < 0.2;
+                    const childCount = makeSingle ? 1 : 2;
+                    for (let i = 0; i < childCount; i += 1) {{
+                        const child = buildTree(depth + 1, maxDepth);
+                        child.parent = node;
+                        node.children.push(child);
+                    }}
+                    return node;
+                }}
+
+                function walk(node, out) {{
+                    out.push(node);
+                    node.children.forEach((c) => walk(c, out));
+                    return out;
+                }}
+
+                function assignLayout(width, height) {{
+                    const marginX = Math.max(40, width * 0.05);
+                    const marginTop = Math.max(42, height * 0.06);
+                    const marginBottom = Math.max(90, height * 0.14);
+                    const maxDepth = Math.max(...nodes.map((n) => n.depth), 1);
+                    const levelGap = (height - marginTop - marginBottom) / maxDepth;
+
+                    let leafIndex = 0;
+                    const orderedLeaves = [];
+                    function setX(node) {{
+                        if (!node.children.length) {{
+                            const span = Math.max(1, leaves.length - 1);
+                            node.x = marginX + ((width - 2 * marginX) * leafIndex) / span;
+                            leafIndex += 1;
+                            orderedLeaves.push(node);
+                            return node.x;
+                        }}
+                        const xs = node.children.map((c) => setX(c));
+                        node.x = xs.reduce((a, b) => a + b, 0) / xs.length;
+                        return node.x;
+                    }}
+
+                    setX(root);
+                    nodes.forEach((n) => {{
+                        n.y = marginTop + n.depth * levelGap + (rand() - 0.5) * 2.5;
+                        n.label = n.children.length ? features[n.depth % features.length] : '';
+                    }});
+                }}
+
+                function rebuildGraph() {{
+                    nodeId = 0;
+                    root = buildTree(0, profile.depth);
+                    if (!root.children.length) {{
+                        const a = newNode(1);
+                        const b = newNode(1);
+                        a.parent = root;
+                        b.parent = root;
+                        root.children = [a, b];
+                    }}
+                    nodes = walk(root, []);
+                    leaves = nodes.filter((n) => !n.children.length);
+                    links = [];
+                    nodes.forEach((node) => node.children.forEach((child) => links.push({{ from: node, to: child }})));
+                    leafLoad = new Map(leaves.map((l) => [l.id, 0]));
+                    particles = [];
+                }}
+
+                function pickChild(node) {{
+                    if (!node.children.length) return null;
+                    if (node.children.length === 1) return node.children[0];
+                    return rand() < 0.5 ? node.children[0] : node.children[1];
+                }}
+
+                function spawnParticle() {{
+                    const first = pickChild(root);
+                    if (!first) return;
+                    const isGreen = rand() < profile.greenBias;
+                    particles.push({{
+                        node: root,
+                        next: first,
+                        t: 0,
+                        speed: profile.speed + rand() * 0.12,
+                        color: isGreen ? palette.green : palette.blue,
+                        r: 3 + rand() * 1.4,
+                    }});
+                }}
+
+                function advanceParticle(p, dt) {{
+                    p.t += p.speed * dt;
+                    while (p.t >= 1) {{
+                        p.t -= 1;
+                        p.node = p.next;
+                        if (!p.node.children.length) {{
+                            const val = (leafLoad.get(p.node.id) || 0) + 1.7;
+                            leafLoad.set(p.node.id, Math.min(34, val));
+                            return false;
+                        }}
+                        p.next = pickChild(p.node);
+                        if (!p.next) return false;
+                    }}
+                    return true;
+                }}
+
+                function fadeLeafLoads(dt) {{
+                    leaves.forEach((leaf) => {{
+                        const current = leafLoad.get(leaf.id) || 0;
+                        const decayed = Math.max(0, current - 0.6 * dt);
+                        leafLoad.set(leaf.id, decayed);
+                    }});
+                }}
+
+                function drawBranches() {{
+                    ctx.strokeStyle = palette.link;
+                    ctx.lineWidth = 1.4;
+                    links.forEach((link) => {{
+                        const midY = (link.from.y + link.to.y) * 0.48;
+                        ctx.beginPath();
+                        ctx.moveTo(link.from.x, link.from.y);
+                        ctx.lineTo(link.from.x, midY);
+                        ctx.lineTo(link.to.x, midY);
+                        ctx.lineTo(link.to.x, link.to.y);
+                        ctx.stroke();
+                    }});
+                }}
+
+                function drawNodeHints() {{
+                    nodes.forEach((node, idx) => {{
+                        if (!node.children.length) return;
+                        const color = idx % 2 ? palette.blue : palette.green;
+                        ctx.fillStyle = color;
+                        ctx.fillRect(node.x - 1.2, node.y + 8, 2.4, 14);
+                        ctx.fillStyle = '#5b6158';
+                        ctx.font = '12px Manrope, sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(node.label, node.x, node.y - 7);
+                    }});
+                }}
+
+                function drawParticles() {{
+                    particles.forEach((p) => {{
+                        const x = p.node.x + (p.next.x - p.node.x) * p.t;
+                        const y = p.node.y + (p.next.y - p.node.y) * p.t;
+                        ctx.beginPath();
+                        ctx.fillStyle = p.color;
+                        ctx.arc(x, y, p.r, 0, Math.PI * 2);
+                        ctx.fill();
+                    }});
+                }}
+
+                function drawLeafBubbles(height) {{
+                    const baseY = height - 34;
+                    leaves.forEach((leaf, idx) => {{
+                        const load = leafLoad.get(leaf.id) || 0;
+                        if (load < 0.05) return;
+                        const radius = 4 + Math.min(34, load * 0.72);
+                        const color = idx % 2 ? palette.blue : palette.green;
+                        ctx.beginPath();
+                        ctx.fillStyle = color;
+                        ctx.arc(leaf.x, baseY, radius, 0, Math.PI * 2);
+                        ctx.fill();
+                    }});
+                }}
+
+                function resizeCanvas() {{
+                    const dpr = window.devicePixelRatio || 1;
+                    const width = layer.clientWidth;
+                    const height = layer.clientHeight;
+                    canvas.width = Math.floor(width * dpr);
+                    canvas.height = Math.floor(height * dpr);
+                    ctx = canvas.getContext('2d');
+                    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                    assignLayout(width, height);
+                }}
+
+                function render(ts) {{
+                    if (!ctx) return;
+                    const width = layer.clientWidth;
+                    const height = layer.clientHeight;
+                    const dt = Math.min(0.05, (ts - (lastTime || ts)) / 1000);
+                    lastTime = ts;
+
+                    spawnCarry += profile.spawnRate * dt * 60;
+                    while (spawnCarry >= 1) {{
+                        spawnParticle();
+                        spawnCarry -= 1;
+                    }}
+                    particles = particles.filter((p) => advanceParticle(p, dt * 60));
+                    fadeLeafLoads(dt * 60);
+
+                    ctx.clearRect(0, 0, width, height);
+                    drawBranches();
+                    drawNodeHints();
+                    drawParticles();
+                    drawLeafBubbles(height);
+
+                    window.requestAnimationFrame(render);
+                }}
+
+                const activate = (index) => {{
+                    cards.forEach((el, idx) => el.classList.toggle('active', idx === index));
+                    pins.forEach((el, idx) => el.classList.toggle('active', idx === index));
+                }};
+
+                pins.forEach((pin, idx) => {{
+                    pin.addEventListener('click', () => {{
+                        cards[idx].scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                        activate(idx);
+                    }});
+                }});
+
+                const observer = new IntersectionObserver((entries) => {{
+                    const visible = entries
+                        .filter((entry) => entry.isIntersecting)
+                        .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+                    if (visible.length) {{
+                        const idx = Number(visible[0].target.dataset.step || 0);
+                        activate(idx);
+                    }}
+                }}, {{ threshold: [0.35, 0.55, 0.75] }});
+
+                cards.forEach((card) => observer.observe(card));
+                rebuildGraph();
+                resizeCanvas();
+                window.addEventListener('resize', resizeCanvas);
+                window.requestAnimationFrame(render);
+                activate(0);
+            }})();
+        </script>
+    </body>
+</html>
+"""
+    return Response(page, mimetype="text/html")
 
 
 def _build_zip_assets():
@@ -526,8 +1152,6 @@ TECHNICAL_DETAILS_COPY = html.Div(className="fhf-prose", children=[
 MODEL_COPY = {
     "lgbm": html.Div(className="fhf-prose", children=[
         html.P("LightGBM = gradient boosting (leaf-wise trees)."),
-        html.Img(src="/assets/model_diagram_lgbm.svg?v=4", className="model-diagram", alt="LightGBM diagram"),
-        html.Div("Diagram: boosting adds trees sequentially; LightGBM often grows leaf-wise.", className="model-diagram-note"),
         html.P("Light Gradient Boosting uses hundreds of tiny decision trees trained sequentially; each tree focuses on the residual mistakes of prior trees."),
         html.P("Basic tree example (this project): Tree 1 might split first on n311_y (high complaint density) and then on nevict_y; a hex with high n311_y and high nevict_y gets a higher baseline risk. Tree 2 then corrects misses by splitting on n_dcp_expiring5yr and n_dcp_aff_units, nudging risk up where affordability pressure is rising."),
         html.P([html.B("How this is different from the other two algorithms"), ": LightGBM grows trees leaf-wise, so it can quickly chase the biggest remaining error pockets." ]),
@@ -540,8 +1164,6 @@ MODEL_COPY = {
     ]),
     "xgb": html.Div(className="fhf-prose", children=[
         html.P("XGBoost = gradient boosting (level-wise trees)."),
-        html.Img(src="/assets/model_diagram_xgb.svg?v=4", className="model-diagram", alt="XGBoost diagram"),
-        html.Div("Diagram: each tree is an incremental correction to the score.", className="model-diagram-note"),
         html.P("Another gradient-boosted tree ensemble; uses histogram splits for speed and strong performance on tabular problems."),
         html.P("Basic tree example (this project): an early XGBoost tree might split level-by-level on nfiled_y and nhpd_y to isolate hexes with both many filed evictions and many housing complaints. The next boosting tree can then focus on residual error inside that group, for example splitting on dcp_status_median to separate areas with weaker preservation pipeline signals."),
         html.P([html.B("How this is different from the other two algorithms"), ": XGBoost typically grows trees level-wise with stronger explicit regularization, which often gives more conservative, stable corrections than LightGBM." ]),
@@ -554,8 +1176,6 @@ MODEL_COPY = {
     ]),
     "rf": html.Div(className="fhf-prose", children=[
         html.P("Random Forest = many trees voting/averaging."),
-        html.Img(src="/assets/model_diagram_rf.svg?v=4", className="model-diagram", alt="Random Forest diagram"),
-        html.Div("Diagram: many independent trees vote/average into one prediction.", className="model-diagram-note"),
         html.P("Hundreds of decorrelated decision trees averaged together; great for quick baselines and uncertainty intuition."),
         html.P("Basic tree example (this project): one forest tree might split on n311_y then n_dcp_expired and predict high risk for complaint-heavy hexes with many expired affordable units. Another tree, built from a different bootstrap sample, might split on nevict_y then n_dcp_units and produce a moderate score. The model output is the average of those tree-level predictions."),
         html.P([html.B("How this is different from the other two algorithms"), ": Random Forest trees are trained independently in parallel and then averaged, instead of sequentially correcting residuals like LightGBM and XGBoost." ]),
@@ -576,12 +1196,15 @@ def model_copy_component(model_key: str):
 ALL_MODEL_COPY = html.Div(children=[
     html.H6("LightGBM", className="fhf-section-title mt-1"),
     MODEL_COPY["lgbm"],
+    html.A("Open LightGBM interactive model page", href="/models/lgbm", className="btn btn-sm btn-outline-primary"),
     html.Hr(className="my-3"),
     html.H6("Random Forest", className="fhf-section-title"),
     MODEL_COPY["rf"],
+    html.A("Open Random Forest interactive model page", href="/models/rf", className="btn btn-sm btn-outline-primary"),
     html.Hr(className="my-3"),
     html.H6("XGBoost", className="fhf-section-title"),
     MODEL_COPY["xgb"],
+    html.A("Open XGBoost interactive model page", href="/models/xgb", className="btn btn-sm btn-outline-primary"),
 ])
 
 

@@ -17,6 +17,17 @@ def _parse_int_list(raw: str | None, default: list[int]) -> list[int]:
         out.append(int(part))
     return out
 
+
+def _parse_bool(raw: str | None, default: bool) -> bool:
+    if raw is None:
+        return default
+    val = str(raw).strip().lower()
+    if val in ("1", "true", "yes", "y", "on"):
+        return True
+    if val in ("0", "false", "no", "n", "off"):
+        return False
+    return default
+
 try:
     from dotenv import load_dotenv
 except ImportError:  # pragma: no cover - optional dependency handled gracefully
@@ -77,6 +88,17 @@ class Settings:
     train_years: list[int] = field(default_factory=lambda: _parse_int_list(os.getenv("TRAIN_YEARS"), []))
     # PREDICT_YEARS controls what years are written to predictions CSVs and shown in the app.
     predict_years: list[int] = field(default_factory=lambda: _parse_int_list(os.getenv("PREDICT_YEARS"), [2026, 2027, 2028, 2029]))
+
+    # Optional ZIP-year economic scenario used to drive future-only feature multipliers.
+    # If present, these are applied for ZIP_ECON_SCENARIO_YEARS instead of flat growth.
+    use_zip_econ_scenario: bool = _parse_bool(os.getenv("USE_ZIP_ECON_SCENARIO", "1"), True)
+    zip_econ_scenario_path: str = os.getenv(
+        "ZIP_ECON_SCENARIO_PATH",
+        os.path.join("data", "interim", "zip_econ_scenario_2027_2029.csv"),
+    )
+    zip_econ_scenario_years: list[int] = field(
+        default_factory=lambda: _parse_int_list(os.getenv("ZIP_ECON_SCENARIO_YEARS"), [2027, 2028, 2029])
+    )
 
     app_port: int = int(os.getenv("APP_PORT", "8050"))
     app_host: str = os.getenv("APP_HOST", "127.0.0.1")
