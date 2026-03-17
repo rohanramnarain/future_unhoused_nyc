@@ -387,6 +387,26 @@ def model_detail_page(model_key: str):  # pragma: no cover - static explainer ro
                 height: 100%;
                 display: block;
             }}
+            .model-tree-tooltip {{
+                position: absolute;
+                z-index: 4;
+                pointer-events: none;
+                max-width: min(320px, 70vw);
+                padding: 0.38rem 0.52rem;
+                border-radius: 8px;
+                background: rgba(18, 24, 20, 0.9);
+                color: #f4f7f2;
+                font-size: 0.78rem;
+                line-height: 1.3;
+                box-shadow: 0 8px 20px rgba(12, 15, 12, 0.25);
+                opacity: 0;
+                transform: translateY(4px);
+                transition: opacity 0.12s ease, transform 0.12s ease;
+            }}
+            .model-tree-tooltip.visible {{
+                opacity: 1;
+                transform: translateY(0);
+            }}
             .model-callout-row {{
                 display: flex;
                 flex-wrap: wrap;
@@ -493,6 +513,7 @@ def model_detail_page(model_key: str):  # pragma: no cover - static explainer ro
                     <div class=\"model-callout-row\" aria-label=\"Story step shortcuts\">{callouts}</div>
                     <div class=\"model-diagram-layer\" aria-label=\"{model['title']} model diagram\">
                         <canvas id=\"tree-canvas\" class=\"model-tree-canvas\" aria-label=\"Animated decision tree\"></canvas>
+                        <div id=\"tree-tooltip\" class=\"model-tree-tooltip\" role=\"status\" aria-live=\"polite\"></div>
                     </div>
                 </div>
                 <div class=\"model-story-rail\">{story_cards}</div>
@@ -513,9 +534,9 @@ def model_detail_page(model_key: str):  # pragma: no cover - static explainer ro
                     xgb: {{ bg: '#f3f2ee', link: '#b8b9b7', blue: '#174f91', green: '#4a9d35' }},
                 }};
                 const profiles = {{
-                    lgbm: {{ depth: 7, prune: 0.18, spawnRate: 0.07, speed: 0.34, greenBias: 0.49 }},
-                    rf: {{ depth: 6, prune: 0.26, spawnRate: 0.06, speed: 0.28, greenBias: 0.52 }},
-                    xgb: {{ depth: 7, prune: 0.21, spawnRate: 0.075, speed: 0.32, greenBias: 0.51 }},
+                    lgbm: {{ depth: 7, prune: 0.18, spawnRate: 0.044, speed: 0.145, greenBias: 0.49 }},
+                    rf: {{ depth: 6, prune: 0.26, spawnRate: 0.038, speed: 0.12, greenBias: 0.52 }},
+                    xgb: {{ depth: 7, prune: 0.21, spawnRate: 0.046, speed: 0.138, greenBias: 0.51 }},
                 }};
                 const featureMap = {{
                     lgbm: ['n311_y', 'nhpd_y', 'nevict_y', 'n_dcp_aff_units', 'n_dcp_expired', 'nfiled_y'],
@@ -526,6 +547,28 @@ def model_detail_page(model_key: str):  # pragma: no cover - static explainer ro
                 const palette = palettes[modelKey] || palettes.lgbm;
                 const profile = profiles[modelKey] || profiles.lgbm;
                 const features = featureMap[modelKey] || featureMap.lgbm;
+                const splitRanges = {{
+                    n311_y: {{ min: 0.8, max: 7.5, d: 1 }},
+                    nhpd_y: {{ min: 0.5, max: 6.0, d: 1 }},
+                    nevict_y: {{ min: 0.2, max: 4.5, d: 1 }},
+                    nfiled_y: {{ min: 0.5, max: 8.0, d: 1 }},
+                    n_dcp_units: {{ min: 25, max: 900, d: 0 }},
+                    n_dcp_aff_units: {{ min: 10, max: 500, d: 0 }},
+                    n_dcp_expiring5yr: {{ min: 5, max: 250, d: 0 }},
+                    n_dcp_expired: {{ min: 5, max: 220, d: 0 }},
+                    dcp_status_median: {{ min: 1.0, max: 4.0, d: 1 }},
+                }};
+
+                function makeSplitRule(feature) {{
+                    const spec = splitRanges[feature] || {{ min: 0.5, max: 5.0, d: 1 }};
+                    const raw = spec.min + rand() * (spec.max - spec.min);
+                    const threshold = Number(raw.toFixed(spec.d));
+                    return {{
+                        feature,
+                        threshold,
+                        text: feature + ' > ' + threshold.toFixed(spec.d),
+                    }};
+                }}
 
                 function makeRng(seedStr) {{
                     let h = 2166136261;
@@ -554,6 +597,40 @@ def model_detail_page(model_key: str):  # pragma: no cover - static explainer ro
                 let lastTime = 0;
                 let spawnCarry = 0;
                 let ctx = null;
+                let hoverTargets = [];
+                const inlineDepthLimit = 2;
+                const tooltip = document.getElementById('tree-tooltip');
+
+                function pushHoverTarget(x, y, w, h, text) {{
+                    hoverTargets.push({{ x, y, w, h, text }});
+                }}
+
+                function findHoverTarget(x, y) {{
+                    for (let i = hoverTargets.length - 1; i >= 0; i -= 1) {{
+                        const t = hoverTargets[i];
+                        if (x >= t.x - t.w / 2 && x <= t.x + t.w / 2 && y >= t.y - t.h / 2 && y <= t.y + t.h / 2) {{
+                            return t;
+                        }}
+                    }}
+                    return null;
+                }}
+
+                function showTooltip(target, x, y) {{
+                    if (!tooltip || !target) return;
+                    tooltip.textContent = target.text;
+                    tooltip.classList.add('visible');
+                    const pad = 10;
+                    const maxLeft = Math.max(pad, layer.clientWidth - 260);
+                    const left = Math.min(maxLeft, Math.max(pad, x + 14));
+                    const top = Math.max(pad, y + 12);
+                    tooltip.style.left = left + 'px';
+                    tooltip.style.top = top + 'px';
+                }}
+
+                function hideTooltip() {{
+                    if (!tooltip) return;
+                    tooltip.classList.remove('visible');
+                }}
 
                 function newNode(depth) {{
                     return {{ id: nodeId++, depth, children: [], parent: null, x: 0, y: 0, label: '' }};
@@ -606,7 +683,14 @@ def model_detail_page(model_key: str):  # pragma: no cover - static explainer ro
                     setX(root);
                     nodes.forEach((n) => {{
                         n.y = marginTop + n.depth * levelGap + (rand() - 0.5) * 2.5;
-                        n.label = n.children.length ? features[n.depth % features.length] : '';
+                        if (n.children.length) {{
+                            const feature = features[n.depth % features.length];
+                            n.rule = makeSplitRule(feature);
+                            n.label = n.rule.text;
+                        }} else {{
+                            n.rule = null;
+                            n.label = '';
+                        }}
                     }});
                 }}
 
@@ -683,6 +767,20 @@ def model_detail_page(model_key: str):  # pragma: no cover - static explainer ro
                         ctx.lineTo(link.to.x, midY);
                         ctx.lineTo(link.to.x, link.to.y);
                         ctx.stroke();
+
+                        if (link.from.rule && link.from.children.length === 2) {{
+                            const isRight = link.from.children[1] === link.to;
+                            const decisionTxt = (isRight ? '> ' : '<= ') + link.from.rule.threshold;
+                            const tx = (link.from.x + link.to.x) * 0.5;
+                            const ty = midY - 6;
+                            pushHoverTarget(tx, ty, 180, 20, 'Branch rule: ' + link.from.rule.feature + ' ' + decisionTxt);
+                            if (link.from.depth <= inlineDepthLimit) {{
+                                ctx.fillStyle = '#6a7068';
+                                ctx.font = '11px Manrope, sans-serif';
+                                ctx.textAlign = 'center';
+                                ctx.fillText(decisionTxt, tx, ty);
+                            }}
+                        }}
                     }});
                 }}
 
@@ -692,10 +790,13 @@ def model_detail_page(model_key: str):  # pragma: no cover - static explainer ro
                         const color = idx % 2 ? palette.blue : palette.green;
                         ctx.fillStyle = color;
                         ctx.fillRect(node.x - 1.2, node.y + 8, 2.4, 14);
-                        ctx.fillStyle = '#5b6158';
-                        ctx.font = '12px Manrope, sans-serif';
-                        ctx.textAlign = 'center';
-                        ctx.fillText(node.label, node.x, node.y - 7);
+                        pushHoverTarget(node.x, node.y - 7, 210, 24, 'Split rule: ' + node.label);
+                        if (node.depth <= inlineDepthLimit) {{
+                            ctx.fillStyle = '#5b6158';
+                            ctx.font = '12px Manrope, sans-serif';
+                            ctx.textAlign = 'center';
+                            ctx.fillText(node.label, node.x, node.y - 7);
+                        }}
                     }});
                 }}
 
@@ -749,6 +850,7 @@ def model_detail_page(model_key: str):  # pragma: no cover - static explainer ro
                     }}
                     particles = particles.filter((p) => advanceParticle(p, dt * 60));
                     fadeLeafLoads(dt * 60);
+                    hoverTargets = [];
 
                     ctx.clearRect(0, 0, width, height);
                     drawBranches();
@@ -763,6 +865,19 @@ def model_detail_page(model_key: str):  # pragma: no cover - static explainer ro
                     cards.forEach((el, idx) => el.classList.toggle('active', idx === index));
                     pins.forEach((el, idx) => el.classList.toggle('active', idx === index));
                 }};
+
+                canvas.addEventListener('mousemove', (event) => {{
+                    const rect = canvas.getBoundingClientRect();
+                    const x = event.clientX - rect.left;
+                    const y = event.clientY - rect.top;
+                    const target = findHoverTarget(x, y);
+                    if (target) {{
+                        showTooltip(target, x, y);
+                    }} else {{
+                        hideTooltip();
+                    }}
+                }});
+                canvas.addEventListener('mouseleave', hideTooltip);
 
                 pins.forEach((pin, idx) => {{
                     pin.addEventListener('click', () => {{
