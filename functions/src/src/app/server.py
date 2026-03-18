@@ -534,9 +534,9 @@ def model_detail_page(model_key: str):  # pragma: no cover - static explainer ro
                     xgb: {{ bg: '#f3f2ee', link: '#b8b9b7', blue: '#174f91', green: '#4a9d35' }},
                 }};
                 const profiles = {{
-                    lgbm: {{ depth: 7, prune: 0.18, spawnRate: 0.044, speed: 0.145, greenBias: 0.49 }},
-                    rf: {{ depth: 6, prune: 0.26, spawnRate: 0.038, speed: 0.12, greenBias: 0.52 }},
-                    xgb: {{ depth: 7, prune: 0.21, spawnRate: 0.046, speed: 0.138, greenBias: 0.51 }},
+                    lgbm: {{ depth: 7, prune: 0.18, spawnRate: 0.034, speed: 0.1, greenBias: 0.49 }},
+                    rf: {{ depth: 6, prune: 0.26, spawnRate: 0.03, speed: 0.085, greenBias: 0.52 }},
+                    xgb: {{ depth: 7, prune: 0.21, spawnRate: 0.036, speed: 0.095, greenBias: 0.51 }},
                 }};
                 const featureMap = {{
                     lgbm: ['n311_y', 'nhpd_y', 'nevict_y', 'n_dcp_aff_units', 'n_dcp_expired', 'nfiled_y'],
@@ -726,7 +726,7 @@ def model_detail_page(model_key: str):  # pragma: no cover - static explainer ro
                         node: root,
                         next: first,
                         t: 0,
-                        speed: profile.speed + rand() * 0.12,
+                        speed: profile.speed + rand() * 0.07,
                         color: isGreen ? palette.green : palette.blue,
                         r: 3 + rand() * 1.4,
                     }});
