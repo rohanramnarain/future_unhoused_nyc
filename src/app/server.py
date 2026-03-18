@@ -85,6 +85,28 @@ app = dash.Dash(
 server = app.server
 ODW_INTRO_IMAGE = "/assets/odwintro.png"
 ODW_OUTRO_IMAGE = "/assets/odwoutro.png"
+SITE_FAVICON = "/assets/favicon.svg"
+
+app.index_string = """
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+        {%favicon%}
+        {%css%}
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+"""
 
 MODEL_PAGE_META = {
     "lgbm": {
@@ -216,6 +238,7 @@ def odw_intro_page():  # pragma: no cover - simple route for static intro slide
         <meta charset=\"utf-8\" />
         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
         <title>ODW Intro</title>
+        <link rel=\"icon\" type=\"image/svg+xml\" href=\"{SITE_FAVICON}\" />
         <style>
             html, body {{
                 margin: 0;
@@ -257,6 +280,7 @@ def odw_outro_page():  # pragma: no cover - simple route for static outro slide
         <meta charset=\"utf-8\" />
         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
         <title>ODW Outro</title>
+        <link rel=\"icon\" type=\"image/svg+xml\" href=\"{SITE_FAVICON}\" />
         <style>
             html, body {{
                 margin: 0;
@@ -321,6 +345,7 @@ def model_detail_page(model_key: str):  # pragma: no cover - static explainer ro
         <meta charset=\"utf-8\" />
         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
         <title>{model['title']} | The Future of the Unhoused</title>
+        <link rel=\"icon\" type=\"image/svg+xml\" href=\"{SITE_FAVICON}\" />
         <link href=\"/assets/styles.css\" rel=\"stylesheet\" />
         <style>
             .model-page-wrap {{
@@ -1646,6 +1671,7 @@ def update_map(model_key, year, metric, zip_clicks, zip_enter, zip_value):  # pr
     <!doctype html>
     <html><head>
       <meta charset='utf-8'/>
+                        <link rel='icon' type='image/svg+xml' href='/assets/favicon.svg'/>
             <script src='https://unpkg.com/deck.gl@8.9.24/dist.min.js'></script>
             <script src='/assets/maplibre-gl.js'></script>
             <link href='/assets/maplibre-gl.css' rel='stylesheet'/>
