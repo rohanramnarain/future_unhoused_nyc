@@ -1008,7 +1008,7 @@ def _zip_focus_view_state(value: str | None) -> dict | None:
     return {
         "latitude": centroid["lat"],
         "longitude": centroid["lon"],
-        "zoom": 13.5,
+        "zoom": 15,
         "pitch": 0,
         "bearing": 0,
         "transitionDuration": 600,
