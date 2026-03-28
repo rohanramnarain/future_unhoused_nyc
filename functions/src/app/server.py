@@ -1130,7 +1130,13 @@ def build_all_geojson_blobs():
 GJ_BY_MODEL, MODEL_OPTIONS, DEFAULT_MODEL = build_all_geojson_blobs()
 
 
-def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred", focus_view_state: dict | None = None):
+def make_deck_spec(
+    geojson: Dict,
+    year: int,
+    color_metric: str = "pred",
+    focus_view_state: dict | None = None,
+    color_enabled: bool = True,
+):
     spec = {
         "initialViewState": {"latitude": 40.7128, "longitude": -74.0060, "zoom": 10},
         "controller": True,
@@ -1143,6 +1149,7 @@ def make_deck_spec(geojson: Dict, year: int, color_metric: str = "pred", focus_v
             "data": geojson,
             "colorMetric": color_metric,
             "colorStops": COLOR_STOPS,
+            "colorEnabled": color_enabled,
             "pickable": True,
             "autoHighlight": True,
             "highlightColor": [255, 255, 255, 200],
@@ -1190,39 +1197,39 @@ ANALYSIS_COPY = html.Div(className="fhf-prose", children=[
     html.Ul([
         html.Li([
             html.Code("n311_y"),
-            " — How many relevant 311 service requests came from that area for that year (from NYC 311 open data).",
+            " — How many relevant 311 service requests came from that area for that year (from NYC 311 open data). In this project context, homelessness-related 311 requests are reports tied to someone experiencing homelessness, such as Homeless Person Assistance (for example, a person appears to be sleeping on a sidewalk and needs outreach/support) and Homeless Encampment (for example, a tent encampment under a bridge or in a park). Example value: 37.",
         ]),
         html.Li([
             html.Code("nhpd_y"),
-            " — How many HPD housing complaints were counted in that area (from HPD Complaint Problems data).",
+            " — How many HPD housing complaints were counted in that area (from HPD Complaint Problems data). Example value: 22.",
         ]),
         html.Li([
             html.Code("nevict_y"),
-            " — How many executed evictions were recorded there (from NYC Residential Evictions).",
+            " — How many executed evictions were recorded there (from NYC Residential Evictions). Example value: 4.",
         ]),
         html.Li([
             html.Code("nfiled_y"),
-            " — How many eviction cases were filed there, even if not yet executed (from filed-eviction dataset).",
+            " — How many eviction cases were filed there, even if not yet executed (from filed-eviction dataset). Example value: 13.",
         ]),
         html.Li([
             html.Code("n_dcp_units"),
-            " — Total housing units in DCP-tracked projects in that area (from DCP housing program data).",
+            " — Total housing units in DCP-tracked projects in that area (from DCP housing program data). Example value: 1,250.",
         ]),
         html.Li([
             html.Code("n_dcp_aff_units"),
-            " — Affordable units among those DCP-tracked units (same DCP source).",
+            " — Affordable units among those DCP-tracked units (same DCP source). Example value: 410.",
         ]),
         html.Li([
             html.Code("n_dcp_expiring5yr"),
-            " — Number of DCP-tracked units whose affordability/regulatory status is expected to expire within ~5 years.",
+            " — Number of DCP-tracked units whose affordability/regulatory status is expected to expire within ~5 years. Example value: 95.",
         ]),
         html.Li([
             html.Code("n_dcp_expired"),
-            " — Number of DCP-tracked units whose affordability/regulatory period is already expired.",
+            " — Number of DCP-tracked units whose affordability/regulatory period is already expired. Example value: 60.",
         ]),
         html.Li([
             html.Code("dcp_status_median"),
-            " — A median summary score of project status in that area (from DCP status fields, converted to numeric categories).",
+            " — A median summary score of project status in that area (from DCP status fields, converted to numeric categories). Example value: 2.0.",
         ]),
     ]),
     html.P([
@@ -1263,6 +1270,21 @@ TECHNICAL_DETAILS_COPY = html.Div(className="fhf-prose", children=[
         html.B("Model + bands · "),
         "src/models/baselines.py fits your selected model on nine engineered signals (n311_y, nhpd_y, nevict_y, nfiled_y, n_dcp_units, n_dcp_aff_units, n_dcp_expiring5yr, n_dcp_expired, dcp_status_median), while src/models/evaluate.py wraps the predictions with symmetric conformal intervals so each hex gets pred, lo, and hi.",
     ]),
+    html.H6("Current model scorecard", className="fhf-section-title"),
+    html.P("Held-out metrics from the latest baseline training run (March 27, 2026):"),
+    html.Ul([
+        html.Li("Evaluation setup: target=risk_proxy, random seed=42, train/test split=80/20."),
+        html.Li("Sample counts: 65,923 train rows and 16,481 test rows."),
+    ]),
+    html.Ul([
+        html.Li("Random Forest: MAE=0.000012, RMSE=0.000247, R2=0.999979"),
+        html.Li("LightGBM: MAE=0.000210, RMSE=0.002073, R2=0.998502"),
+        html.Li("XGBoost: MAE=0.000284, RMSE=0.001945, R2=0.998681"),
+    ]),
+    html.P(
+        "These are train/test-split errors on the proxy target used in this deployment, not causal impact estimates. "
+        "Lower MAE/RMSE and higher R2 are better, but small differences should be interpreted cautiously because feature engineering and target construction drive much of this signal."
+    ),
     html.H6("Why choose these 3 models", className="fhf-section-title"),
     html.P(
         "We use LightGBM, XGBoost, and Random Forest because this project is tabular, nonlinear, and relatively sparse at the hex-year level. LightGBM and XGBoost capture threshold effects and interactions in complaint/eviction/housing signals with strong predictive performance, while Random Forest gives a stable, low-assumption ensemble baseline that is less sensitive to local noise. Using all three lets us compare consistent feature-driven rankings across model families instead of relying on a single algorithmic view of risk."
@@ -1280,12 +1302,9 @@ TECHNICAL_DETAILS_COPY = html.Div(className="fhf-prose", children=[
         ]),
         html.Li("Use this repo for source code, pipeline scripts, deployment configuration, and change history."),
     ]),
-    html.P([
-        "Created by ",
-        html.A("Rohan Ramnarain", href="https://rohanramnarain.com", target="_blank"),
-    ]),
+    html.P("Created by Rohan Ramnarain, Kevin Guillermo, Marilyn Echeverria, and Alice Dong."),
     html.H6("Special thanks", className="fhf-section-title"),
-    html.P("Kevin Guillermo, Marilyn Echeverria, and Alice Dong for contributing to this project."),
+    html.P("Special thanks to our funders: the CUNY Graduate Center M.S. in Data Analysis and Visualization Program (MA/MS Grant support), and the Futures Initiative Equity and Social Justice Grant."),
 ])
 
 
@@ -1432,6 +1451,18 @@ app.layout = dbc.Container([
                     ),
                 ], md=12),
             ]),
+
+            dbc.Row([
+                dbc.Col([
+                    dbc.Label("Map colors", html_for="show-colors", className="fhf-muted mb-1"),
+                    dbc.Checklist(
+                        id="show-colors",
+                        options=[{"label": "Show yellow/orange/red risk colors", "value": "on"}],
+                        value=["on"],
+                        switch=True,
+                    ),
+                ], md=12),
+            ], className="g-3 mt-1"),
         ]),
     ]),
 
@@ -1651,12 +1682,14 @@ def update_legend(model_key, year, metric):
     Input("model", "value"),
     Input("year", "value"),
     Input("metric", "value"),
+    Input("show-colors", "value"),
     Input("zip-submit", "n_clicks"),
     Input("zip-input", "n_submit"),
     State("zip-input", "value"),
 )
-def update_map(model_key, year, metric, zip_clicks, zip_enter, zip_value):  # pragma: no cover - UI wiring
+def update_map(model_key, year, metric, show_colors, zip_clicks, zip_enter, zip_value):  # pragma: no cover - UI wiring
     metric_key = metric if metric in METRIC_LABELS else "pred"
+    color_enabled = isinstance(show_colors, list) and "on" in show_colors
     year_features = _year_features_for_model(model_key, year)
     year_gj = {"type": "FeatureCollection", "features": year_features}
 
@@ -1664,7 +1697,13 @@ def update_map(model_key, year, metric, zip_clicks, zip_enter, zip_value):  # pr
     focus_state = None
     if trigger_id in ("zip-submit", "zip-input"):
         focus_state = _zip_focus_view_state(zip_value)
-    spec = make_deck_spec(year_gj, year=year, color_metric=metric_key, focus_view_state=focus_state)
+    spec = make_deck_spec(
+        year_gj,
+        year=year,
+        color_metric=metric_key,
+        focus_view_state=focus_state,
+        color_enabled=color_enabled,
+    )
     spec["mapboxApiAccessToken"] = settings.mapbox_token or ""
     json_spec = json.dumps(spec)
     iframe_template = """
@@ -1682,7 +1721,7 @@ def update_map(model_key, year, metric, zip_clicks, zip_enter, zip_value):  # pr
       <script>
                 const spec = __DECK_SPEC__;
                 const layerSpec = spec.layers[0];
-                const { colorMetric = 'pred', colorStops = [], ...layerProps } = layerSpec;
+                const { colorMetric = 'pred', colorStops = [], colorEnabled = true, ...layerProps } = layerSpec;
                 const focusViewState = spec.focusViewState || null;
                 const metricLabels = spec.metricLabels || {};
                 const rankMetrics = spec.rankMetrics || [];
@@ -1759,6 +1798,9 @@ def update_map(model_key, year, metric, zip_clicks, zip_enter, zip_value):  # pr
                 const layer = new deck.GeoJsonLayer({
                     ...layerProps,
                     getFillColor: feature => {
+                        if (!colorEnabled) {
+                            return [0, 0, 0, 0];
+                        }
                         const rawValue = feature?.properties?.[colorMetric];
                         const normalized = normalizeMetricValue(rawValue);
                         if (normalized === null) {
