@@ -36,10 +36,9 @@ COLOR_STOPS = [
     {"max": 1.0, "color": [189, 0, 38, 255]},
 ]
 
-METRIC_ORDER = [
-    "pred",
-    "lo",
-    "hi",
+FORECAST_METRICS = ["pred", "lo", "hi"]
+
+PREDICTOR_COUNT_METRICS = [
     "n311_y",
     "nhpd_y",
     "nevict_y",
@@ -48,8 +47,9 @@ METRIC_ORDER = [
     "n_dcp_aff_units",
     "n_dcp_expiring5yr",
     "n_dcp_expired",
-    "dcp_status_median",
 ]
+
+METRIC_ORDER = FORECAST_METRICS + PREDICTOR_COUNT_METRICS + ["dcp_status_median"]
 
 METRIC_LABELS = {
     "pred": "Prediction (mu)",
@@ -68,10 +68,18 @@ METRIC_LABELS = {
 
 RANK_METRICS = {"pred", "lo", "hi"}
 
-METRIC_OPTIONS = [
-    {"label": METRIC_LABELS[key], "value": key}
-    for key in METRIC_ORDER
+LAYER_VIEW_OPTIONS = [
+    {"label": "Forecast outputs", "value": "forecast"},
+    {"label": "Raw predictor counts", "value": "predictor_counts"},
 ]
+
+
+def _metric_options(metric_keys: list[str]) -> list[dict]:
+    return [{"label": METRIC_LABELS[key], "value": key} for key in metric_keys]
+
+
+FORECAST_METRIC_OPTIONS = _metric_options(FORECAST_METRICS)
+PREDICTOR_COUNT_METRIC_OPTIONS = _metric_options(PREDICTOR_COUNT_METRICS)
 
 logger = get_logger()
 
@@ -559,9 +567,9 @@ def model_detail_page(model_key: str):  # pragma: no cover - static explainer ro
                     xgb: {{ bg: '#f3f2ee', link: '#b8b9b7', blue: '#174f91', green: '#4a9d35' }},
                 }};
                 const profiles = {{
-                    lgbm: {{ depth: 7, prune: 0.18, spawnRate: 0.034, speed: 0.1, greenBias: 0.49 }},
-                    rf: {{ depth: 6, prune: 0.26, spawnRate: 0.03, speed: 0.085, greenBias: 0.52 }},
-                    xgb: {{ depth: 7, prune: 0.21, spawnRate: 0.036, speed: 0.095, greenBias: 0.51 }},
+                    lgbm: {{ depth: 7, prune: 0.18, spawnRate: 0.034, speed: 0.025, greenBias: 0.49 }},
+                    rf: {{ depth: 6, prune: 0.26, spawnRate: 0.03, speed: 0.022, greenBias: 0.52 }},
+                    xgb: {{ depth: 7, prune: 0.21, spawnRate: 0.036, speed: 0.024, greenBias: 0.51 }},
                 }};
                 const featureMap = {{
                     lgbm: ['n311_y', 'nhpd_y', 'nevict_y', 'n_dcp_aff_units', 'n_dcp_expired', 'nfiled_y'],
@@ -751,7 +759,7 @@ def model_detail_page(model_key: str):  # pragma: no cover - static explainer ro
                         node: root,
                         next: first,
                         t: 0,
-                        speed: profile.speed + rand() * 0.07,
+                        speed: profile.speed + rand() * 0.02,
                         color: isGreen ? palette.green : palette.blue,
                         r: 3 + rand() * 1.4,
                     }});
@@ -1418,11 +1426,20 @@ app.layout = dbc.Container([
                 ], md=5),
 
                 dbc.Col([
+                    dbc.Label("Layer view", html_for="layer-view", className="fhf-muted mb-1"),
+                    dbc.Select(
+                        id="layer-view",
+                        value="forecast",
+                        options=LAYER_VIEW_OPTIONS,
+                    ),
+                ], md=2),
+
+                dbc.Col([
                     dbc.Label("Metric", html_for="metric", className="fhf-muted mb-1"),
                     dbc.Select(
                         id="metric",
                         value="pred",
-                        options=METRIC_OPTIONS,
+                        options=FORECAST_METRIC_OPTIONS,
                     ),
                 ], md=3),
 
@@ -1520,7 +1537,7 @@ app.layout = dbc.Container([
                 ]),
                 html.Ul([
                     html.Li("Treat the map as a hotspot ranking tool, not an absolute forecast of probability."),
-                    html.Li("Use Metric to switch between model outputs (pred/lo/hi) and raw predictor layers."),
+                    html.Li("Use Layer view to toggle between forecast outputs and raw predictor counts, then use Metric to choose the variable."),
                     html.Li("Hover a hex for the value and year; ZIP is approximate."),
                 ]),
             ]),
@@ -1663,6 +1680,24 @@ def _legend_component(metric_key: str, year_features: list[dict]):
             html.Div(note, className="fhf-legend-note"),
         ]
     )
+
+
+@app.callback(
+    Output("metric", "options"),
+    Output("metric", "value"),
+    Output("model", "disabled"),
+    Input("layer-view", "value"),
+    State("metric", "value"),
+)
+def sync_metric_options(layer_view, current_metric):
+    if layer_view == "predictor_counts":
+        options = PREDICTOR_COUNT_METRIC_OPTIONS
+        default_metric = PREDICTOR_COUNT_METRICS[0]
+        return options, (current_metric if current_metric in PREDICTOR_COUNT_METRICS else default_metric), True
+
+    options = FORECAST_METRIC_OPTIONS
+    default_metric = FORECAST_METRICS[0]
+    return options, (current_metric if current_metric in FORECAST_METRICS else default_metric), False
 
 
 @app.callback(
