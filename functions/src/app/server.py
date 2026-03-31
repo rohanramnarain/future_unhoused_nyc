@@ -38,23 +38,28 @@ COLOR_STOPS = [
 
 FORECAST_METRICS = ["pred", "lo", "hi"]
 
-PREDICTOR_COUNT_METRICS = [
-    "n311_y",
-    "nhpd_y",
-    "nevict_y",
-    "nfiled_y",
+BASE_TOTAL_METRICS = [
+    "n311",
+    "nhpd",
+    "nevict",
+    "nfiled",
     "n_dcp_units",
     "n_dcp_aff_units",
     "n_dcp_expiring5yr",
     "n_dcp_expired",
+    "dcp_status_median",
 ]
 
-METRIC_ORDER = FORECAST_METRICS + PREDICTOR_COUNT_METRICS + ["dcp_status_median"]
+METRIC_ORDER = FORECAST_METRICS + BASE_TOTAL_METRICS
 
 METRIC_LABELS = {
     "pred": "Prediction (mu)",
     "lo": "Lower band (lo)",
     "hi": "Upper band (hi)",
+    "n311": "311 requests (base total)",
+    "nhpd": "HPD complaints (base total)",
+    "nevict": "Executed evictions (base total)",
+    "nfiled": "Filed evictions (base total)",
     "n311_y": "311 requests",
     "nhpd_y": "HPD complaints",
     "nevict_y": "Executed evictions",
@@ -70,7 +75,7 @@ RANK_METRICS = {"pred", "lo", "hi"}
 
 LAYER_VIEW_OPTIONS = [
     {"label": "Forecast outputs", "value": "forecast"},
-    {"label": "Raw predictor counts", "value": "predictor_counts"},
+    {"label": "True base totals (raw)", "value": "base_totals"},
 ]
 
 
@@ -79,7 +84,9 @@ def _metric_options(metric_keys: list[str]) -> list[dict]:
 
 
 FORECAST_METRIC_OPTIONS = _metric_options(FORECAST_METRICS)
-PREDICTOR_COUNT_METRIC_OPTIONS = _metric_options(PREDICTOR_COUNT_METRICS)
+BASE_TOTAL_METRIC_OPTIONS = _metric_options(BASE_TOTAL_METRICS)
+
+BASE_FEATURES_PATH = os.path.join(settings.interim_dir, "features.parquet")
 
 logger = get_logger()
 
@@ -1054,13 +1061,65 @@ def _build_zip_props(hex_features: List[dict]):
     return zip_props_by_hex
 
 
+def _load_base_metrics_by_hex_year() -> dict[tuple[str, int], dict]:
+    if not os.path.exists(BASE_FEATURES_PATH):
+        return {}
+
+    try:
+        base_df = pd.read_parquet(BASE_FEATURES_PATH, columns=["hex", "year", *BASE_TOTAL_METRICS])
+    except Exception as exc:
+        logger.warning("Failed reading base features from %s: %s", BASE_FEATURES_PATH, exc)
+        return {}
+
+    out: dict[tuple[str, int], dict] = {}
+    for r in base_df.itertuples(index=False):
+        vals = {}
+        for metric in BASE_TOTAL_METRICS:
+            value = getattr(r, metric, None)
+            if pd.notna(value):
+                vals[metric] = float(value)
+        out[(r.hex, int(r.year))] = vals
+    return out
+
+
+def _fallback_base_metrics_from_prediction_row(row) -> dict:
+    # Fallback for deployments where interim/features.parquet is not packaged.
+    # In the default pipeline, *_y columns are built from base counts with a
+    # deterministic annual growth factor, so we can invert that transform.
+    year = int(getattr(row, "year"))
+    growth = 1 + 0.03 * (year - 2025)
+    growth = growth if growth > 0 else 1.0
+
+    vals = {}
+    raw_from_growth = {
+        "n311": getattr(row, "n311_y", None),
+        "nhpd": getattr(row, "nhpd_y", None),
+        "nevict": getattr(row, "nevict_y", None),
+        "nfiled": getattr(row, "nfiled_y", None),
+    }
+    for out_col, y_value in raw_from_growth.items():
+        if pd.notna(y_value):
+            vals[out_col] = float(y_value) / growth
+
+    # These are already non-growth features in predictions and can be copied.
+    for metric in ["n_dcp_units", "n_dcp_aff_units", "n_dcp_expiring5yr", "n_dcp_expired", "dcp_status_median"]:
+        value = getattr(row, metric, None)
+        if pd.notna(value):
+            vals[metric] = float(value)
+
+    return vals
+
+
 def build_geojson_blob(pred_path: str, hex_features: List[dict], zip_props_by_hex: dict):
     preds = pd.read_csv(pred_path)
     available_metrics = [m for m in METRIC_ORDER if m in preds.columns]
+    base_metrics_by_hex_year = _load_base_metrics_by_hex_year()
 
     props_by_hex_year = {}
     for r in preds.itertuples(index=False):
-        metric_props = {}
+        metric_props = base_metrics_by_hex_year.get((r.hex, int(r.year)), {}).copy()
+        if not metric_props:
+            metric_props = _fallback_base_metrics_from_prediction_row(r)
         for metric in available_metrics:
             value = getattr(r, metric, None)
             if pd.notna(value):
@@ -1537,7 +1596,7 @@ app.layout = dbc.Container([
                 ]),
                 html.Ul([
                     html.Li("Treat the map as a hotspot ranking tool, not an absolute forecast of probability."),
-                    html.Li("Use Layer view to toggle between forecast outputs and raw predictor counts, then use Metric to choose the variable."),
+                    html.Li("Use Layer view to toggle between forecast outputs and true base totals, then use Metric to choose the variable."),
                     html.Li("Hover a hex for the value and year; ZIP is approximate."),
                 ]),
             ]),
@@ -1690,10 +1749,10 @@ def _legend_component(metric_key: str, year_features: list[dict]):
     State("metric", "value"),
 )
 def sync_metric_options(layer_view, current_metric):
-    if layer_view == "predictor_counts":
-        options = PREDICTOR_COUNT_METRIC_OPTIONS
-        default_metric = PREDICTOR_COUNT_METRICS[0]
-        return options, (current_metric if current_metric in PREDICTOR_COUNT_METRICS else default_metric), True
+    if layer_view == "base_totals":
+        options = BASE_TOTAL_METRIC_OPTIONS
+        default_metric = BASE_TOTAL_METRICS[0]
+        return options, (current_metric if current_metric in BASE_TOTAL_METRICS else default_metric), True
 
     options = FORECAST_METRIC_OPTIONS
     default_metric = FORECAST_METRICS[0]
