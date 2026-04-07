@@ -1369,7 +1369,7 @@ TECHNICAL_DETAILS_COPY = html.Div(className="fhf-prose", children=[
         ]),
         html.Li("Use this repo for source code, pipeline scripts, deployment configuration, and change history."),
     ]),
-    html.P("Created by Rohan Ramnarain, Kevin Guillermo, Marilyn Echeverria, and Alice Dong."),
+    html.P("Created by Rohan Ramnarain, Kevin Guillermo, and Alice Dong."),
     html.H6("Special thanks", className="fhf-section-title"),
     html.P("Special thanks to our funders: the CUNY Graduate Center M.S. in Data Analysis and Visualization Program (MA/MS Grant support), and the Futures Initiative Equity and Social Justice Grant."),
 ])
